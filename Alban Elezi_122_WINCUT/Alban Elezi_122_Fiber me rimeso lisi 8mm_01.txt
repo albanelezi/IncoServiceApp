@@ -1,0 +1,25 @@
+[Intestazione]
+Descrizione=flavio vali/KZH
+TipoMateriale=Fiber me rimeso lisi 8mm
+Lunghezza=3660.000000
+Larghezza=1830.000000
+Spessore=8.000000
+AltPacco=90.000000
+VelRotaz=3000
+VelAvanz=32.000000
+[Righe]
+NumeroRighe=4
+1=RY,10.000000,1,0.000000,0.000000,0.000000,0.000000
+2=Y,1210.000000,1,0.000000,0.000000,0.000000,0.000000
+3=RX,10.000000,1,0.000000,0.000000,0.000000,0.000000
+4=X,317.000000,3,0.000000,0.000000,0.000000,0.000000
+[Dati]
+NumeroDati=3
+1=,,CuttElab,flavio vali/KZH,6,Fiber me rimeso lisi 8mm,Unfinished Back/Fiber,317,1210,8,,
+2=,,CuttElab,flavio vali/KZH,10,Fiber me rimeso lisi 8mm,Unfinished Back/Fiber,317,1210,8,,
+3=,,CuttElab,flavio vali/KZH,13,Fiber me rimeso lisi 8mm,Unfinished Back/Fiber,317,1210,8,,
+[Riferimenti]
+1=
+2=
+3=
+4=(1)

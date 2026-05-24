@@ -1,0 +1,35 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "functions/**",
+      "bundle-worker.js",
+      "optimizer-worker.js",
+      "README.md",
+      "*.zip",
+      "*.bak",
+      "_*.js"
+    ],
+    "rewrites": [
+      { "source": "**", "destination": "/INCO_Furniture_v12.html" }
+    ]
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "_*.js",
+        "test-*.js",
+        "verify-*.js"
+      ]
+    }
+  ]
+}
