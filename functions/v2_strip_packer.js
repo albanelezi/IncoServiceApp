@@ -171,20 +171,46 @@ function bestStripFill(rem, stripL, stripH, kerf, maxGroups = 4) {
   // (Pieces with `ph < stripH` can fit in offcut/V-bar spaces — those are
   // sub-cuts inside an already-separated strip, and get a third pass with
   // their own RV head trim. That handling is separate from primary fill.)
-  const candTypes = [];
+  //
+  // GRAIN DEDUP: when "Ruaj Ujerat" is on, every PDF row is a separate type
+  // with rem=1.  The DFS below picks ONE type per "group" and at maxGroups=4
+  // can only fit 4 distinct types per strip.  For grain inputs this caps a
+  // strip's primary at 4 pieces, even when 7+ small same-dim pieces would
+  // fit — directly costing the 3rd panel on the 43-piece test job.  Fix:
+  // bucket types by (pw, ph) for the DFS so identical-dim grain rows share
+  // a virtual slot, then expand the picked qty back to individual rows
+  // (qty=1 each) when emitting `cuts`.  Non-grain types collapse on rotation
+  // pairs as before — same bucket key handles both orientations of a single
+  // type and shared-dim across multiple types uniformly.
+  const buckets = new Map();
   for (const t of rem.filter(r => r.rem > 0)) {
+    // Dedup: square non-grain types return [[X, X], [X, X]] from orientations(),
+    // and other types could theoretically share keys across rotations if rotation
+    // happens to match stripH on both axes — counting them twice would inflate
+    // bucket.available and let the DFS pick more than t.rem of one type.
+    const seenKeys = new Set();
     for (const [pw, ph] of orientations(t)) {
-      if (Math.abs(ph - stripH) > 0.5) continue;  // strict height match
+      if (Math.abs(ph - stripH) > 0.5) continue;
       if (pw > stripL) continue;
-      candTypes.push({ typeId: t.id, pw, ph, available: t.rem });
+      const key = `${pw}|${ph}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      let b = buckets.get(key);
+      if (!b) { b = { pw, ph, available: 0, sources: [] }; buckets.set(key, b); }
+      b.available += t.rem;
+      // sources is ordered (insertion order = type id order).  Expansion
+      // below pulls qty entries from sources in this same order so the
+      // first grain type seen consumes first, deterministically.
+      b.sources.push({ typeId: t.id, rem: t.rem });
     }
   }
-  if (candTypes.length === 0) return null;
-  // Sort by (pw × ph) descending so we try largest pieces first
+  if (buckets.size === 0) return null;
+  // Use a single representative per bucket as the DFS candidate.
+  const candTypes = [...buckets.values()];
   candTypes.sort((a, b) => b.pw * b.ph - a.pw * a.ph);
 
-  const used = new Map();
-  let bestFill = null;
+  const used = new Map();      // bucket-key → qty consumed in current path
+  let bestFill = null;         // stored as virtual cuts (one per bucket key)
 
   function dfs(remainL, depth, currentCuts, currentArea, currentPlaced) {
     if (currentCuts.length > 0) {
@@ -201,30 +227,54 @@ function bestStripFill(rem, stripL, stripH, kerf, maxGroups = 4) {
     if (depth >= maxGroups || remainL <= 0) return;
     for (const c of candTypes) {
       if (c.pw > remainL) continue;
-      const consumed = used.get(c.typeId) || 0;
+      const key = `${c.pw}|${c.ph}`;
+      const consumed = used.get(key) || 0;
       const available = c.available - consumed;
       if (available <= 0) continue;
-      // Max qty of THIS orientation that fits in remaining length
       const maxQty = Math.min(
         Math.floor((remainL + kerf) / (c.pw + kerf)),
         available
       );
       if (maxQty <= 0) continue;
-      // Try just maxQty (largest fit). For small panel counts this is enough;
-      // smaller qty values don't open up wholly new fits often.
       const qty = maxQty;
       const actualUsed = qty * c.pw + (qty - 1) * kerf;
       const newRemain = remainL - actualUsed - kerf;
-      used.set(c.typeId, consumed + qty);
-      currentCuts.push({ typeId: c.typeId, pw: c.pw, ph: c.ph, qty });
+      used.set(key, consumed + qty);
+      // Push a BUCKET cut, not a per-typeId one — we'll expand below.
+      currentCuts.push({ bucketKey: key, pw: c.pw, ph: c.ph, qty });
       const groupArea = qty * c.pw * c.ph;
       dfs(newRemain, depth + 1, currentCuts, currentArea + groupArea, currentPlaced + qty);
       currentCuts.pop();
-      used.set(c.typeId, consumed);
+      used.set(key, consumed);
     }
   }
   dfs(stripL, 0, [], 0, 0);
-  return bestFill;
+  if (!bestFill) return null;
+
+  // Expand bucket cuts back to per-typeId cuts.  For each bucket cut with
+  // qty=N, draw N from the bucket's sources list (in insertion order),
+  // emitting one cut per source consumed.  Downstream code subtracts
+  // `cut.qty` from `rem.find(r => r.id === cut.typeId)`, so emitting
+  // qty=N for one type or N×qty=1 for distinct types is equivalent —
+  // we use whichever keeps the rem map correct.
+  const expandedCuts = [];
+  for (const bc of bestFill.cuts) {
+    const bucket = buckets.get(bc.bucketKey);
+    if (!bucket) continue;
+    let remaining = bc.qty;
+    for (const s of bucket.sources) {
+      if (remaining <= 0) break;
+      const take = Math.min(remaining, s.rem);
+      if (take <= 0) continue;
+      expandedCuts.push({ typeId: s.typeId, pw: bc.pw, ph: bc.ph, qty: take });
+      remaining -= take;
+    }
+  }
+  return {
+    cuts: expandedCuts,
+    placed: bestFill.placed,
+    area: bestFill.area,
+  };
 }
 
 // V-bar packer — fill leftover vertical space inside an X-strip with cross-cuts.
@@ -1387,6 +1437,36 @@ function addBoundedStripCombos(types, panelL, panelW, kerf, trimEdge, trimSub, c
   const live = types.filter(t => t.rem > 0);
   if (live.length === 0) return;
 
+  // Wall-clock soft cap.  Bumped to 4 s (was 1.5 s) so big-grain jobs can
+  // explore enough strip schedules to find the densest panel count.  When
+  // grain ("Ruaj Ujerat") is on, every PDF row is its own type — identical-
+  // dim materials present 30+ types where a non-grain run had ~10.  The
+  // 3-panel-vs-2-panel difference on a 33-type Mel.Rimeso job came down to
+  // the recur enumerator not getting to enumerate [395, 395, 395, 395, 95]
+  // (4× same-h grain band + a thin 95-strip on top).  The same-height +
+  // same-plus-one-off passes below catch that pattern in O(dims × maxK)
+  // time, which is FAR cheaper than recur (dims^maxStrips), so we can also
+  // bump maxStrips back up without blowing the budget.
+  const __budgetMs = 4000;
+  const __t0 = Date.now();
+  let __aborted = false;
+
+  // recurMaxStrips and topDimsCap apply only to the MIXED-height recur at
+  // the end; the same-h / one-off passes that come first don't depend on
+  // these.  Larger type counts still trim the recur tree (the inner
+  // packPanelYWithHeightsAll grows O(types × leads)), but Pass 1/2 ensure
+  // dominant patterns are still reachable.
+  const recurMaxStrips =
+      live.length <= 8  ? 6 :
+      live.length <= 16 ? 5 :
+      live.length <= 24 ? 4 :
+      3;
+  const topDimsCap =
+      live.length <= 8  ? 8 :
+      live.length <= 16 ? 6 :
+      live.length <= 24 ? 5 :
+      5;
+
   // Score each piece DIMENSION by (total demand area on this dim).
   // A dim that appears in many high-demand types ranks high.
   const dimScore = new Map();
@@ -1399,26 +1479,114 @@ function addBoundedStripCombos(types, panelL, panelW, kerf, trimEdge, trimSub, c
   }
   const topDims = [...dimScore.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
+    .slice(0, topDimsCap)
     .map(([d]) => d);
   if (topDims.length === 0) return;
 
-  // recurX (X-mode strip widths) budget: reserve left RX + right edge.
   const availL = panelL - 2 * trimEdge;
-  // Y-mode strip budget: reserve top trim implicitly (no row enforces it).
   const availW = panelW - 2 * trimEdge;
-  const maxStrips = 6;
   const seenSigs = new Set();
 
-  function recurX(combo, used) {
-    if (combo.length > 0) {
-      const result = packPanelXWithWidths(types, combo, panelL, panelW, kerf, trimEdge, trimSub, false);
-      if (result) {
-        const sig = `Xb|${result.placedCount}|${result.eff.toFixed(4)}`;
-        if (!seenSigs.has(sig)) { seenSigs.add(sig); tryCandidate(result); }
+  // Helpers — encapsulate the abort check + dedupe + tryCandidate calls so
+  // every pass below shares the same emission discipline.
+  function emitY(combo) {
+    if (__aborted) return;
+    if (Date.now() - __t0 > __budgetMs) { __aborted = true; return; }
+    const results = packPanelYWithHeightsAll(types, combo, panelL, panelW, kerf, trimEdge, trimSub, allowMultiOffcut);
+    for (const r of results) {
+      const sig = `Yb|${r.placedCount}|${r.eff.toFixed(4)}|${r.strips.map(s=>s.primaryCuts[0]?.typeId).join(',')}`;
+      if (!seenSigs.has(sig)) { seenSigs.add(sig); tryCandidate(r); }
+    }
+  }
+  function emitX(combo) {
+    if (__aborted) return;
+    if (Date.now() - __t0 > __budgetMs) { __aborted = true; return; }
+    const result = packPanelXWithWidths(types, combo, panelL, panelW, kerf, trimEdge, trimSub, false);
+    if (result) {
+      const sig = `Xb|${result.placedCount}|${result.eff.toFixed(4)}`;
+      if (!seenSigs.has(sig)) { seenSigs.add(sig); tryCandidate(result); }
+    }
+  }
+
+  // ── PASS 1: SAME-HEIGHT (cheap, exhaustive on viable dims) ──
+  // For each viable strip dimension d in topDims, try k uniform strips for
+  // k=1..maxFit.  Crucial for high-type-count grain jobs: the recur path
+  // shrinks `recurMaxStrips` below the natural panel-fit (often 4-5 same-h
+  // strips), so the dominant "4 strips of 395-mm grain pieces" layout is
+  // unreachable through recur alone.  Cost: O(numDims × maxFit) calls to
+  // the inner packer — typically < 50 calls total.
+  for (const d of topDims) {
+    if (__aborted) break;
+    if (d <= 0) continue;
+    if ((cutDir === 'Y' || cutDir === 'auto') && d <= availW) {
+      const maxK = Math.floor((availW + kerf) / (d + kerf));
+      for (let k = 1; k <= maxK && !__aborted; k++) {
+        emitY(new Array(k).fill(d));
       }
     }
-    if (combo.length >= maxStrips) return;
+    if ((cutDir === 'X' || cutDir === 'auto') && d <= availL) {
+      const maxK = Math.floor((availL + kerf) / (d + kerf));
+      for (let k = 1; k <= maxK && !__aborted; k++) {
+        emitX(new Array(k).fill(d));
+      }
+    }
+  }
+
+  // ── PASS 2: SAME-HEIGHT-PLUS-ONE-OFF ──
+  // Extend each uniform [h1 × k] combo with one strip of a different height
+  // h2.  Catches "4 strips of 395 + 1 strip of 95" patterns common when a
+  // PDF mixes long thin pieces (Panel: 1265×95, 2665×100) with regular
+  // shelves.  Without this pass, the recur tree can't reach combos of
+  // length > recurMaxStrips, so 33-type inputs (recurMaxStrips=3) miss the
+  // 5-strip optimum.  Cost: O(numDims² × maxFit) ~ 100-200 calls.
+  for (const h1 of topDims) {
+    if (__aborted) break;
+    if (h1 <= 0) continue;
+    if ((cutDir === 'Y' || cutDir === 'auto') && h1 <= availW) {
+      const maxK = Math.floor((availW + kerf) / (h1 + kerf));
+      // Loop k=1..maxK INCLUSIVE so the user-observed pattern of [h1×maxK + h2]
+      // (the panel is filled top-to-bottom with same-h grain strips with one
+      // small h2 cap-strip on top) is reachable.  k<maxK would skip it.  The
+      // remW check below still rules out h2 values that don't fit.
+      for (let k = 1; k <= maxK && !__aborted; k++) {
+        // k h1-strips consume k×h1 + (k-1)×kerf; adding an h2 strip needs a
+        // separating kerf before it, so total = k×h1 + k×kerf + h2.  remW is
+        // the slack available for h2 (and counts the separating kerf).
+        const used = k * h1 + k * kerf;
+        const remW = availW - used;
+        if (remW <= 0) continue;
+        for (const h2 of topDims) {
+          if (__aborted) break;
+          if (h2 === h1 || h2 <= 0 || h2 > remW) continue;
+          emitY(new Array(k).fill(h1).concat([h2]));
+        }
+      }
+    }
+    if ((cutDir === 'X' || cutDir === 'auto') && h1 <= availL) {
+      const maxK = Math.floor((availL + kerf) / (h1 + kerf));
+      for (let k = 1; k <= maxK && !__aborted; k++) {
+        const used = k * h1 + k * kerf;
+        const remL = availL - used;
+        if (remL <= 0) continue;
+        for (const w2 of topDims) {
+          if (__aborted) break;
+          if (w2 === h1 || w2 <= 0 || w2 > remL) continue;
+          emitX(new Array(k).fill(h1).concat([w2]));
+        }
+      }
+    }
+  }
+
+  // ── PASS 3: BOUNDED MIXED-HEIGHT (recursive) ──
+  // Generic recursion through topDims × recurMaxStrips.  Provides diversity
+  // for irregular layouts that Pass 1/2 miss (e.g. three distinct strip
+  // heights on one panel).  Bounded by both recurMaxStrips (depth) and the
+  // budget cap above, and seenSigs dedupes duplicates emitted by Passes 1/2.
+  function recurX(combo, used) {
+    if (__aborted) return;
+    if (Date.now() - __t0 > __budgetMs) { __aborted = true; return; }
+    if (combo.length > 0) emitX(combo);
+    if (combo.length >= recurMaxStrips) return;
     for (const w of topDims) {
       const newUsed = used + w + (combo.length > 0 ? kerf : 0);
       if (newUsed > availL) continue;
@@ -1428,14 +1596,10 @@ function addBoundedStripCombos(types, panelL, panelW, kerf, trimEdge, trimSub, c
     }
   }
   function recurY(combo, used) {
-    if (combo.length > 0) {
-      const results = packPanelYWithHeightsAll(types, combo, panelL, panelW, kerf, trimEdge, trimSub, allowMultiOffcut);
-      for (const r of results) {
-        const sig = `Yb|${r.placedCount}|${r.eff.toFixed(4)}|${r.strips.map(s=>s.primaryCuts[0]?.typeId).join(',')}`;
-        if (!seenSigs.has(sig)) { seenSigs.add(sig); tryCandidate(r); }
-      }
-    }
-    if (combo.length >= maxStrips) return;
+    if (__aborted) return;
+    if (Date.now() - __t0 > __budgetMs) { __aborted = true; return; }
+    if (combo.length > 0) emitY(combo);
+    if (combo.length >= recurMaxStrips) return;
     for (const h of topDims) {
       const newUsed = used + h + (combo.length > 0 ? kerf : 0);
       if (newUsed > availW) continue;

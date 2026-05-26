@@ -493,9 +493,73 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 }
 
 /* ─── KONFIGURIM — Materials list ──────────────────────────────── */
-.cfg-materials-list {
+/* Konfigurim: full-width layout — other pages keep the 1200px container,
+   but the cfg page benefits from filling the screen so more material cards
+   fit per row (4–5 across on a typical 1500px monitor). */
+#pg-cfg .page-wrap { max-width: none; }
+
+/* ─── KONFIGURIM — tabs strip (Melamine / Betoforme / MDF / Fiber / Tenie) */
+.cfg-tabs {
   display: flex;
-  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+  background: #f4f5f8;
+  margin: 0 -20px 16px;
+  padding: 0 20px;
+  gap: 4px;
+  position: sticky;
+  top: 54px;
+  z-index: 49;
+  overflow-x: auto;
+}
+.cfg-tab {
+  padding: 12px 20px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  transition: color .12s, border-color .12s;
+}
+.cfg-tab:hover { color: var(--text); }
+.cfg-tab.active {
+  color: var(--text);
+  border-bottom-color: #c89b3c;
+}
+.cfg-tab-count {
+  background: #d4d8e0;
+  color: #4a5068;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+.cfg-tab.active .cfg-tab-count {
+  background: #c89b3c;
+  color: #fff;
+}
+
+/* The pane toolbar above the grid (Shto material:/Shto tenije:) */
+.cfg-pane-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 12px;
+}
+
+/* Materials list → grid for tight 2-3 column layout */
+.cfg-materials-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 12px;
 }
 .cfg-material-card {
@@ -560,37 +624,61 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
   white-space: nowrap;
 }
 
-/* ─── KONFIGURIM — per-material formats list ───────────────────── */
+/* ─── KONFIGURIM — per-material formats list (compact pills) ────── */
 .cfg-mat-fmts {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   padding: 10px 14px 4px;
+  align-items: center;
 }
 .cfg-mat-fmt-row {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   background: #f9fafb;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 8px 10px;
+  border-radius: 14px;
+  padding: 4px 4px 4px 10px;
 }
 .cfg-mat-fmt-label {
   font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   color: var(--text);
   letter-spacing: .3px;
 }
+.cfg-mat-fmt-row .cfg-panel-del {
+  width: 18px; height: 18px;
+  font-size: 14px;
+  line-height: 1;
+}
+/* "+ Shto Format" sits inline with the format pills via flex container above.
+   The add-form (input fields when expanded) drops below as a full-width box. */
 .cfg-mat-fmt-add-wrap {
-  padding: 0 14px 14px;
+  padding: 0 14px 12px;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: 8px;
 }
+/* Compact inline "+ Shto Format" pill — visually consistent with format pills */
+.cfg-mat-fmt-add-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  border: 1px dashed #c89b3c;
+  border-radius: 14px;
+  padding: 5px 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #c89b3c;
+  letter-spacing: .3px;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+.cfg-mat-fmt-add-pill:hover { background: #fefce8; }
 .cfg-mat-fmt-form {
   width: 100%;
   background: #f9fafb;
@@ -625,10 +713,10 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
   flex-shrink: 0;
 }
 
-/* ─── KONFIGURIM — Tenie list ─────────────────────────────────── */
+/* ─── KONFIGURIM — Tenie list (grid for compact layout) ────────── */
 .cfg-tenies-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 8px;
 }
 .cfg-tenie-row {
@@ -2010,8 +2098,12 @@ canvas { border-radius: 3px; display: block; border: 1px solid #e5e7eb; }
   transition: border-color .15s, background .15s, transform .08s;
   position: relative;
 }
-.wf-stage:hover:not(.locked):not(.na) { background: #f3f4f6; }
-.wf-stage:active:not(.locked):not(.na) { transform: scale(.98); }
+.wf-stage:hover:not(.locked):not(.na):not(.ro) { background: #f3f4f6; }
+.wf-stage:active:not(.locked):not(.na):not(.ro) { transform: scale(.98); }
+.wf-stage.ro,
+.wf-paint-sub-stage.ro {
+  cursor: default;
+}
 .wf-stage-icon {
   width: 28px; height: 28px;
   border-radius: 50%;
@@ -2221,6 +2313,211 @@ canvas { border-radius: 3px; display: block; border: 1px solid #e5e7eb; }
   font-size: 10px;
   color: var(--muted);
   letter-spacing: .3px;
+}
+
+/* Department-grouped landing view (replaces order Kanban as default) ─ */
+.wf-dept-wrap { padding: 0; }
+.wf-dept-toolbar {
+  position: sticky; top: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 20px;
+  display: flex; align-items: center; gap: 14px;
+  z-index: 50;
+}
+.wf-dept-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 22px;
+  letter-spacing: 1.5px;
+}
+.wf-dept-subtitle { font-size: 12px; color: var(--muted); }
+.wf-dept-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: #f4f5f8;
+  padding: 0 20px;
+  gap: 4px;
+  position: sticky;
+  top: 56px;
+  z-index: 49;
+}
+.wf-dept-tab {
+  padding: 12px 18px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: color .12s, border-color .12s;
+}
+.wf-dept-tab:hover { color: var(--text); }
+.wf-dept-tab.active {
+  color: var(--text);
+  border-bottom-color: #1a4a8c;
+}
+.wf-dept-count {
+  background: #d4d8e0;
+  color: #4a5068;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+.wf-dept-tab.active .wf-dept-count {
+  background: #1a4a8c;
+  color: #fff;
+}
+.wf-dept-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wf-dept-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+  transition: border-color .12s, box-shadow .12s;
+  user-select: none;
+}
+.wf-dept-card:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 2px 8px rgba(0,0,0,.05);
+}
+.wf-dept-card-dot {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.wf-dept-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+  min-width: 180px;
+  max-width: 220px;
+}
+.wf-dept-card-meta .order { font-size: 13px; font-weight: 700; color: var(--text); }
+.wf-dept-card-meta .date  { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+.wf-dept-card-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.wf-dept-card-mat {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-dept-card-stats {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.wf-dept-card-next {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: .4px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+.wf-dept-card-next b { color: #1a4a8c; }
+.wf-dept-card-next.wf-dept-card-last {
+  color: #16a34a;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.wf-dept-card-substage {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: #b45309;
+  letter-spacing: .3px;
+  margin-top: 2px;
+  font-weight: 700;
+}
+/* Paint sub-stage chips inline on the Lyerje cards — 4 pills, each
+   tappable to mark its sub-stage done (or revert with confirm). */
+.wf-dept-sub-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.wf-dept-sub-pill {
+  padding: 5px 10px;
+  border-radius: 14px;
+  border: 1.5px solid #e5e7eb;
+  background: #fff;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: border-color .12s, background .12s, color .12s;
+  user-select: none;
+}
+.wf-dept-sub-pill:hover:not(.locked) { border-color: #cbd5e1; background: #f9fafb; }
+.wf-dept-sub-pill.done {
+  background: #dcfce7;
+  border-color: #16a34a;
+  color: #15803d;
+}
+.wf-dept-sub-pill.next {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  color: #92400e;
+}
+.wf-dept-sub-pill.locked {
+  opacity: .45;
+  cursor: not-allowed;
+  background: #f3f4f6;
+}
+.wf-dept-sub-pill .ck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: rgba(0,0,0,.08);
+  color: transparent;
+  font-size: 10px;
+}
+.wf-dept-sub-pill.done .ck { background: #16a34a; color: #fff; }
+.wf-dept-sub-pill.next .ck { background: #f59e0b; color: #fff; }
+.wf-dept-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.wf-dept-empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-style: italic;
+  font-size: 13px;
 }
 
 /* Document Editor Modal (order-creation context) ------------------ */
@@ -2628,11 +2925,38 @@ body.hide-prices .col-totali { display: none !important; }
 <!-- PAGE: MENAXHIMI POROSIVE (KANBAN)                               -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <div id="pg-kanban" class="page">
-  <!-- VIEW 1 — Kanban board (default) -->
-  <div class="kanban-wrap" id="wf-view-board">
-    <div class="kanban-header">
+  <!-- VIEW 0 (DEFAULT) — Department-grouped landing: 4 tabs (Sharra/Bordim/CNC/Lyerje).
+       Each tab lists material cards that need work in THAT department. Tapping a card
+       opens View 3 (block workspace) with the dept context, so the action bar there
+       knows which stage's "✓ Mbarov" button to render. -->
+  <div class="wf-dept-wrap" id="wf-view-departments">
+    <div class="wf-dept-toolbar">
       <div>
-        <div class="kanban-title">MENAXHIMI POROSIVE</div>
+        <div class="wf-dept-title">MENAXHIMI POROSIVE</div>
+        <div class="wf-dept-subtitle" id="wf-dept-subtitle">—</div>
+      </div>
+      <div style="flex:1"></div>
+      <button class="btn btn-sm" onclick="wfShowOrderOverview()" title="Pamja e statusit të porosive (Pritje / Procesim / Përfunduar / Dorëzuar)">📋 Pamje porosish</button>
+      <button class="btn btn-sm" onclick="renderDepartments(null, true)" title="Rifresko të dhënat nga serveri">↻ Rifresko</button>
+    </div>
+    <div class="wf-dept-tabs">
+      <button class="wf-dept-tab" data-dept="saw"   onclick="setDeptTab('saw')">⚙ Sharra <span class="wf-dept-count" id="wf-dept-count-saw">0</span></button>
+      <button class="wf-dept-tab" data-dept="board" onclick="setDeptTab('board')">❒ Bordim <span class="wf-dept-count" id="wf-dept-count-board">0</span></button>
+      <button class="wf-dept-tab" data-dept="cnc"   onclick="setDeptTab('cnc')">✕ CNC <span class="wf-dept-count" id="wf-dept-count-cnc">0</span></button>
+      <button class="wf-dept-tab" data-dept="paint" onclick="setDeptTab('paint')">🎨 Lyerje <span class="wf-dept-count" id="wf-dept-count-paint">0</span></button>
+    </div>
+    <div class="wf-dept-body" id="wf-dept-body">
+      <div class="wf-dept-empty">Po ngarkohen porositë…</div>
+    </div>
+  </div>
+
+  <!-- VIEW 1 — Kanban board (legacy: no longer the default landing, kept for
+       backwards-compat with any callers that still navigate here directly) -->
+  <div class="kanban-wrap" id="wf-view-board" style="display:none;">
+    <div class="kanban-header">
+      <button class="btn btn-sm" onclick="renderDepartments()" title="Kthehu te pamja sipas departamenteve" style="margin-right:8px;">← Departamentet</button>
+      <div>
+        <div class="kanban-title">PAMJE POROSISH</div>
         <div class="kanban-subtitle" id="kanban-subtitle">—</div>
       </div>
       <div style="flex:1"></div>
@@ -2658,7 +2982,7 @@ body.hide-prices .col-totali { display: none !important; }
   <!-- VIEW 3 — Block workspace (PDF + drawing overlay) -->
   <div class="wf-block-wrap" id="wf-view-block" style="display:none;">
     <div class="wf-toolbar">
-      <button class="btn btn-sm" onclick="wfBackToOrder()">← Mbrapa te Porosia</button>
+      <button class="btn btn-sm" onclick="wfBackFromBlock()">← Mbrapa</button>
       <div class="wf-breadcrumb">
         <span class="wf-bc-up"  id="wf-block-order-name">—</span>
         <span class="wf-bc-sep">›</span>
@@ -2731,68 +3055,45 @@ body.hide-prices .col-totali { display: none !important; }
       </div>
       <span class="price-save-status" id="cfg-save-status" style="font-size:12px;color:var(--muted);"></span>
     </div>
-    <div class="ph" style="margin-bottom:16px;">
-      <div><div class="ph-sub">Materialet dhe formatet e tyre</div></div>
+    <!-- TAB STRIP — Melamine / Betoforme / MDF / Fiber / Tenie.
+         Replaces the old single-list layout that mixed all materials and
+         required a lot of scrolling. Each tab is a focused section. -->
+    <div class="cfg-tabs" id="cfg-tabs">
+      <button class="cfg-tab" data-cfgtab="melamine"  onclick="setCfgTab('melamine')">Melamine <span class="cfg-tab-count" id="cfg-tab-count-melamine">0</span></button>
+      <button class="cfg-tab" data-cfgtab="betoforme" onclick="setCfgTab('betoforme')">Betoforme <span class="cfg-tab-count" id="cfg-tab-count-betoforme">0</span></button>
+      <button class="cfg-tab" data-cfgtab="mdf"       onclick="setCfgTab('mdf')">MDF <span class="cfg-tab-count" id="cfg-tab-count-mdf">0</span></button>
+      <button class="cfg-tab" data-cfgtab="fiber"     onclick="setCfgTab('fiber')">Fiber <span class="cfg-tab-count" id="cfg-tab-count-fiber">0</span></button>
+      <button class="cfg-tab" data-cfgtab="tenie"     onclick="setCfgTab('tenie')">Tenie <span class="cfg-tab-count" id="cfg-tab-count-tenie">0</span></button>
     </div>
 
-    <!-- FORMATE PANELESH — global dimension+thickness combos (HIDDEN: formats are managed per-material now) -->
+    <!-- MATERIALS PANE — visible for the four material tabs; filtered by type -->
+    <div id="cfg-mat-pane">
+      <div class="cfg-pane-toolbar">
+        <span style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:.5px;">SHTO:</span>
+        <button type="button" class="btn btn-sm cfg-add-btn" id="cfg-add-mat-btn" onclick="addMaterial(_cfgTab)">+ <span id="cfg-add-mat-label">Material</span></button>
+      </div>
+      <div id="cfg-add-material-form" class="cfg-add-form" style="display:none;"></div>
+      <div id="cfg-materials-list" class="cfg-materials-list"></div>
+    </div>
+
+    <!-- TENIE PANE — visible only when Tenie tab active -->
+    <div id="cfg-tenie-pane" style="display:none;">
+      <div class="cfg-pane-toolbar">
+        <span style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:.5px;">SHTO:</span>
+        <button type="button" class="btn btn-sm cfg-add-btn" onclick="addTenie()">+ Tenije e re</button>
+      </div>
+      <div id="cfg-add-tenie-form" class="cfg-add-form" style="display:none;"></div>
+      <div id="cfg-tenies-list" class="cfg-tenies-list"></div>
+    </div>
+
+    <!-- LEGACY HIDDEN ELEMENTS — referenced by save/load code paths,
+         kept in the DOM so existing wiring keeps working without changes. -->
     <div style="display:none;">
-      <p class="price-section-label">Formate panelesh</p>
       <div id="cfg-formats-list" class="cfg-formats-list"></div>
       <div id="cfg-add-format-form" class="cfg-add-form"></div>
-      <div class="cfg-add-panel-row">
-        <span style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:.5px;">SHTO FORMAT:</span>
-        <button type="button" class="btn btn-sm cfg-add-btn" onclick="addFormat()">+ Format i ri</button>
-      </div>
-    </div>
-
-    <!-- MATERIALET — list of materials, each with their own formats (no prices) -->
-    <p class="price-section-label">Materialet</p>
-    <div id="cfg-materials-list" class="cfg-materials-list"></div>
-    <div id="cfg-add-material-form" class="cfg-add-form" style="display:none;"></div>
-    <div class="cfg-add-panel-row">
-      <span style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:.5px;">SHTO MATERIAL:</span>
-      <button type="button" class="btn btn-sm cfg-add-btn" onclick="addMaterial('melamine')">+ Melamine</button>
-      <button type="button" class="btn btn-sm cfg-add-btn" onclick="addMaterial('betoforme')">+ Betoforme</button>
-      <button type="button" class="btn btn-sm cfg-add-btn" onclick="addMaterial('mdf')">+ MDF</button>
-      <button type="button" class="btn btn-sm cfg-add-btn" onclick="addMaterial('fiber')">+ Fiber</button>
-    </div>
-
-    <!-- TENIE — DYNAMIC LIST -->
-    <p class="price-section-label" style="margin-top:24px;">Tenie</p>
-    <div id="cfg-tenies-list" class="cfg-tenies-list"></div>
-    <div id="cfg-add-tenie-form" class="cfg-add-form" style="display:none;"></div>
-    <div class="cfg-add-panel-row">
-      <span style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:.5px;">SHTO TENIJE:</span>
-      <button type="button" class="btn btn-sm cfg-add-btn" onclick="addTenie()">+ Tenije e re</button>
-    </div>
-
-    <!-- SERVICES — HIDDEN: prices are not shown to the user. Inputs are kept in the DOM
-         so existing save/load wiring keeps working without code changes. -->
-    <div style="display:none;">
-      <p class="price-section-label">Shërbimet</p>
-      <div class="price-table-wrap">
-        <div class="price-table-head">
-          <span>Shërbimi</span>
-          <span>Njësia</span>
-          <span>Çmimi</span>
-        </div>
-        <div class="price-row">
-          <div><div class="price-row-label">Prerja CNC</div><div class="price-row-desc">Çmimi për çdo panel të prerë</div></div>
-          <div class="price-row-unit">Lek / panel</div>
-          <div class="price-row-input-wrap"><input type="number" id="cfg-price-cutting" min="0" oninput="syncServicePricesToDraft()" step="1" placeholder="0"></div>
-        </div>
-        <div class="price-row">
-          <div><div class="price-row-label">Lyerja</div><div class="price-row-desc">Aplikohet te MDF dhe MDF me rimeso</div></div>
-          <div class="price-row-unit">Lek / m²</div>
-          <div class="price-row-input-wrap"><input type="number" id="cfg-price-painting" min="0" oninput="syncServicePricesToDraft()" step="1" placeholder="0"></div>
-        </div>
-        <div class="price-row">
-          <div><div class="price-row-label">Frezim</div><div class="price-row-desc">Aplikohet për copë te MDF dhe MDF me rimeso</div></div>
-          <div class="price-row-unit">Lek / copë</div>
-          <div class="price-row-input-wrap"><input type="number" id="cfg-price-frezim" min="0" oninput="syncServicePricesToDraft()" step="1" placeholder="0"></div>
-        </div>
-      </div>
+      <input type="number" id="cfg-price-cutting"  min="0" oninput="syncServicePricesToDraft()" step="1" placeholder="0">
+      <input type="number" id="cfg-price-painting" min="0" oninput="syncServicePricesToDraft()" step="1" placeholder="0">
+      <input type="number" id="cfg-price-frezim"   min="0" oninput="syncServicePricesToDraft()" step="1" placeholder="0">
     </div>
 
     <!-- Spacer so the floating footer doesn't cover the last section. -->
@@ -3229,7 +3530,14 @@ function goPage(id) {
   if(id==='pg-klient')    renderKlientet();
   if(id==='pg-porosite')  renderAllOrders();
   if(id==='pg-cfg')       { initKonfigDraft(); fillPriceFields(); }
-  if(id==='pg-kanban')    renderKanban();
+  if(id==='pg-kanban')    {
+    // New default landing: department-grouped view (Sharra / Bordim / CNC / Lyerje).
+    // Each department's manager sees only their own queue of material cards.
+    // The legacy order-Kanban (renderKanban) is kept in the file for fallback
+    // but is no longer reachable from the nav. To restore it temporarily, swap
+    // this call back to `renderKanban()`.
+    renderDepartments();
+  }
   // Show grand total bar only on order form
   const bar = document.getElementById('grand-total-bar');
   if(bar) bar.classList.toggle('visible', id==='pg-porosi-new' && blocks.length>0);
@@ -3833,6 +4141,19 @@ function countSavedOrdersUsing(field, id) {
 // persisted as of v12 so saved orders can restore the 2D layout instantly
 // on open without re-running the optimizer (which can take ~90s on Cloud Run).
 // Trade-off: order doc grows ~10–50 KB, well within Firestore's 1 MB limit.
+// Whitelist of underscore-prefixed ROW fields that are REAL DATA (not
+// transient render-time calculations) and must survive save/load. Without
+// this, PDF-imported rows lose their fromPdf flag + import codes after the
+// first save and become editable again.
+const _PERSIST_ROW_UNDERSCORE = new Set([
+  '_fromPdf',          // marks the row as PDF-imported (locks L/G/Copë)
+  '_importCode',       // bare front program code (e.g. r13f0021)
+  '_importCodeBack',   // back program code (e.g. r13b0021)
+  '_importCaseNumber', // #N case number from the PDF label
+  '_importPart',       // part description text from the PDF
+  '_importJob',        // PDF job title (red text, e.g. "flavio vali/KZH")
+]);
+
 function stripTransientFromBlocks(blocksArr) {
   return blocksArr.map(b => {
     const slim = {};
@@ -3840,12 +4161,14 @@ function stripTransientFromBlocks(blocksArr) {
       if(k === '_optTimer') continue;  // setTimeout handle (non-serializable)
       slim[k] = b[k];
     }
-    // Slim rows: drop every transient (underscore-prefixed) field
+    // Slim rows: drop transient underscore-prefixed render fields (_idx, _m2,
+    // _ml*, _m2sip, _m2ans, …) but keep the import flags + codes whitelisted
+    // above so PDF-imported rows stay locked after a save/load round-trip.
     if(Array.isArray(slim.rows)) {
       slim.rows = slim.rows.map(r => {
         const sr = {};
         for(const rk in r) {
-          if(rk.startsWith('_')) continue;  // _idx, _m2, _ml, _ml22, _ml28, _ml40, _ml56, _m2sip, _m2ans
+          if(rk.startsWith('_') && !_PERSIST_ROW_UNDERSCORE.has(rk)) continue;
           sr[rk] = r[rk];
         }
         return sr;
@@ -4037,6 +4360,9 @@ function applyOrderDriftBanner(order) {
   const existing   = document.getElementById('order-drift-banner');
   if(existing) existing.remove();
   if(!order) return;
+  // Prices are hidden globally — drift warnings are price-driven, so suppress
+  // the banner entirely while HIDE_PRICES is on.
+  if (typeof HIDE_PRICES !== 'undefined' && HIDE_PRICES) return;
   const drift = detectKonfigDrift(order);
   if(!drift.drifted) return;
   if(!breadcrumb || !breadcrumb.parentElement) return;
@@ -4286,14 +4612,18 @@ function renderOrdersTable(list) {
     // Prefer current klient name (handles renames). Fall back to snapshot if
     // klient was deleted (cascade-delete should also remove orders, but be safe).
     const liveName = (p.klient_id && klientById[p.klient_id]?.emri) || p.klient_emri || '—';
-    // v12: ⚠ icon if this order's frozen prices differ from current Konfigurim.
-    // Tooltip lists the specific price changes detected.
+    // ⚠ drift icon used to signal that an order's frozen prices differ from
+    // current Konfigurim. Prices are hidden globally (HIDE_PRICES), so the
+    // icon is suppressed — it's noise the operator can't act on while the
+    // price UI is disabled. Re-enable automatically when HIDE_PRICES flips off.
     let driftIcon = '';
-    const drift = detectKonfigDrift(p);
-    if(drift.drifted) {
-      const tip = ('Çmimet kanë ndryshuar që kur kjo porosi u ruajt:\n• ' + drift.reasons.join('\n• '))
-        .replace(/"/g, '&quot;');
-      driftIcon = ` <span title="${tip}" style="display:inline-block;color:#d97706;font-size:13px;font-weight:700;cursor:help;margin-left:4px;vertical-align:-1px;">⚠</span>`;
+    if (typeof HIDE_PRICES === 'undefined' || !HIDE_PRICES) {
+      const drift = detectKonfigDrift(p);
+      if(drift.drifted) {
+        const tip = ('Çmimet kanë ndryshuar që kur kjo porosi u ruajt:\n• ' + drift.reasons.join('\n• '))
+          .replace(/"/g, '&quot;');
+        driftIcon = ` <span title="${tip}" style="display:inline-block;color:#d97706;font-size:13px;font-weight:700;cursor:help;margin-left:4px;vertical-align:-1px;">⚠</span>`;
+      }
     }
     return `<tr style="cursor:pointer;" onclick="openOrder(${p.id})"
         onmouseover="this.style.background='var(--page-bg)'"
@@ -4334,6 +4664,14 @@ async function openOrder(id) {
     if(b.dimMode == null) b.dimMode = 'Fikse';
     if(b.dimAdd  == null) b.dimAdd  = 0;
     if(b.cutDir  == null) b.cutDir  = 'auto';
+    // Per-block label-printing toggle. Default ON for backward compat: every
+    // existing order keeps printing one WinCut label per piece (the historical
+    // behavior).  When the operator un-checks the per-block "Printo Etiketat"
+    // checkbox in the UI, _stripLabelRefsIfDisabled blanks the [Riferimenti]
+    // (K) references at download time so WinCut emits no label rows for that
+    // material.  No optimizer/.txt re-run required; the stored panel content
+    // is left as-is and only the OUTPUT bytes are tweaked.
+    if(b.printLabels == null) b.printLabels = true;
     delete b.tenieType;
     b.cfg = b.cfg || {};
     if(b.cfg.kerf  == null) b.cfg.kerf  = 4.4;
@@ -5616,8 +5954,62 @@ function fillPriceFields() {
   set('cfg-price-painting',  p.painting);
   set('cfg-price-frezim',    p.frezim);
   renderFormatsList();
-  renderMaterialsList();
+  renderMaterialsList(_cfgTab);
   renderTeniesList();
+  _cfgUpdateTabCounts();
+  setCfgTab(_cfgTab);
+}
+
+// ── KONFIGURIM tabs (Melamine / Betoforme / MDF / Fiber / Tenie) ──
+// Tracks the currently active tab; preserved across re-renders. Materials
+// tabs share a single pane (filtered by type); Tenie has its own pane.
+window._cfgTab = window._cfgTab || 'melamine';
+
+const _CFG_TAB_LABELS = {
+  melamine:  'Melamine',
+  betoforme: 'Betoforme',
+  mdf:       'MDF',
+  fiber:     'Fiber',
+  tenie:     'Tenie',
+};
+
+function setCfgTab(tab) {
+  if (!_CFG_TAB_LABELS[tab]) return;
+  _cfgTab = tab;
+  // Visually mark the active tab
+  document.querySelectorAll('.cfg-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.cfgtab === tab);
+  });
+  const matPane   = document.getElementById('cfg-mat-pane');
+  const teniePane = document.getElementById('cfg-tenie-pane');
+  if (tab === 'tenie') {
+    if (matPane)   matPane.style.display   = 'none';
+    if (teniePane) teniePane.style.display = '';
+    renderTeniesList();
+  } else {
+    if (teniePane) teniePane.style.display = 'none';
+    if (matPane)   matPane.style.display   = '';
+    // Sync the "+ Shto" button label to the active material type
+    const lbl = document.getElementById('cfg-add-mat-label');
+    if (lbl) lbl.textContent = _CFG_TAB_LABELS[tab];
+    renderMaterialsList(tab);
+    // Collapse any open add-material form when switching tabs
+    cancelAddMaterial();
+  }
+  _cfgUpdateTabCounts();
+}
+
+function _cfgUpdateTabCounts() {
+  const P = loadKonfigDraft();
+  const counts = (P.materials || []).reduce((acc, m) => {
+    acc[m.type] = (acc[m.type] || 0) + 1; return acc;
+  }, {});
+  for (const t of ['melamine','betoforme','mdf','fiber']) {
+    const el = document.getElementById('cfg-tab-count-' + t);
+    if (el) el.textContent = counts[t] || 0;
+  }
+  const tenieEl = document.getElementById('cfg-tab-count-tenie');
+  if (tenieEl) tenieEl.textContent = (P.tenies || []).length;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -5647,13 +6039,13 @@ function addFormat() {
       <div class="cfg-add-form-title">Shto format</div>
       <div class="cfg-add-form-grid">
         <div class="cfg-panel-field"><label>Gjatësia (mm) *</label>
-          <input type="number" id="aff-lung" min="1" step="1" value="2440">
+          <input type="number" id="aff-lung" min="1" step="1" placeholder="mm">
         </div>
         <div class="cfg-panel-field"><label>Gjerësia (mm) *</label>
-          <input type="number" id="aff-larg" min="1" step="1" value="1220">
+          <input type="number" id="aff-larg" min="1" step="1" placeholder="mm">
         </div>
         <div class="cfg-panel-field"><label>Trashësia (mm) *</label>
-          <input type="number" id="aff-thickness" min="0.1" step="0.1" value="18" placeholder="mm">
+          <input type="number" id="aff-thickness" min="0.1" step="0.1" placeholder="mm">
         </div>
       </div>
       <div class="cfg-add-form-actions">
@@ -5724,16 +6116,23 @@ function removeFormat(fid) {
 // ═══════════════════════════════════════════════════════════════
 // KONFIGURIM — MATERIALS LIST
 // ═══════════════════════════════════════════════════════════════
-function renderMaterialsList() {
+// Renders the materials grid filtered to a single type (Melamine/Betoforme/
+// MDF/Fiber). When called without a filter it falls back to the active tab
+// (set by the Konfigurim tab strip). Empty types show a friendly empty state.
+function renderMaterialsList(filterType) {
   const wrap = document.getElementById('cfg-materials-list');
   if(!wrap) return;
+  const type = filterType || _cfgTab || 'melamine';
   const P = loadKonfigDraft();
-  const materials = P.materials || [];
+  const materials = (P.materials || []).filter(m => m.type === type);
+  const typeLabel = ({ melamine:'Melamine', betoforme:'Betoforme', mdf:'MDF', fiber:'Fiber' })[type] || type;
   if(materials.length === 0) {
-    wrap.innerHTML = '<div class="cfg-empty">Ende nuk ka materiale të konfiguruara.</div>';
-    return;
+    wrap.innerHTML = `<div class="cfg-empty" style="grid-column:1/-1;padding:40px 20px;text-align:center;">Ende nuk ka materiale të tipit <b>${escHtml(typeLabel)}</b>.</div>`;
+  } else {
+    wrap.innerHTML = materials.map(m => materialCardHtml(m)).join('');
   }
-  wrap.innerHTML = materials.map(m => materialCardHtml(m)).join('');
+  // Keep tab badges fresh after any add/remove. Cheap; runs on every render.
+  if (typeof _cfgUpdateTabCounts === 'function') _cfgUpdateTabCounts();
 }
 
 function materialCardHtml(m) {
@@ -5757,14 +6156,14 @@ function materialCardHtml(m) {
     m.subType === 'mdf_me_rimeso' ? 'MDF me rimeso' : 'MDF'
   ));
 
-  const formatRowsHtml = ownedFormats.length === 0
-    ? `<div class="cfg-empty" style="padding:8px;">Ende nuk ka asnjë format. Klikoni "+ Shto Format" për të shtuar një.</div>`
-    : ownedFormats.map(f => `
-        <div class="cfg-mat-fmt-row">
-          <span class="cfg-mat-fmt-label">${formatLabel(f)}</span>
-          <button class="cfg-panel-del" onclick="removeFormatFromMaterial('${m.id}','${f.id}')" title="Hiq nga ky material">×</button>
-        </div>
-      `).join('');
+  // Compact format pills sit INLINE with the "+ Shto Format" button — same row,
+  // wraps as needed. Far less vertical space than the old stacked rows.
+  const formatPillsHtml = ownedFormats.map(f => `
+    <span class="cfg-mat-fmt-row">
+      <span class="cfg-mat-fmt-label">${formatLabel(f)}</span>
+      <button class="cfg-panel-del" onclick="removeFormatFromMaterial('${m.id}','${f.id}')" title="Hiq nga ky material">×</button>
+    </span>
+  `).join('');
 
   return `
     <div class="cfg-material-card" data-mid="${m.id}">
@@ -5774,10 +6173,12 @@ function materialCardHtml(m) {
         <button class="cfg-panel-del" onclick="removeMaterial('${m.id}')" title="Fshi">×</button>
       </div>
       ${summaryParts.length ? `<div class="cfg-mat-summary">${summaryParts.join('  ·  ')}</div>` : ''}
-      <div class="cfg-mat-fmts">${formatRowsHtml}</div>
+      <div class="cfg-mat-fmts">
+        ${formatPillsHtml}
+        <button type="button" class="cfg-mat-fmt-add-pill" onclick="addFormatToMaterial('${m.id}')">+ Shto Format</button>
+      </div>
       <div class="cfg-mat-fmt-add-wrap">
         <div id="cfg-mat-fmt-form-${m.id}" class="cfg-mat-fmt-form" style="display:none;"></div>
-        <button type="button" class="btn btn-sm cfg-add-btn" onclick="addFormatToMaterial('${m.id}')">+ Shto Format</button>
       </div>
     </div>`;
 }
@@ -5870,7 +6271,10 @@ function confirmAddMaterial(type) {
   P.materials = P.materials || [];
   P.materials.push(m);
   markKonfigDirty();
-  renderMaterialsList();
+  // If the user added a material of a type that isn't the current tab,
+  // auto-switch to that tab so they see what they just added.
+  if (_cfgTab !== type && typeof setCfgTab === 'function') setCfgTab(type);
+  else renderMaterialsList();
   cancelAddMaterial();
   shellToast('Materiali u shtua (kliko Ruaj)');
 }
@@ -5912,13 +6316,13 @@ function addFormatToMaterial(materialId) {
       <div class="cfg-add-form-title">Shto format për këtë material</div>
       <div class="cfg-add-form-grid">
         <div class="cfg-panel-field"><label>Gjatësia (mm) *</label>
-          <input type="number" id="amff-lung-${materialId}" min="1" step="1" value="2440">
+          <input type="number" id="amff-lung-${materialId}" min="1" step="1" placeholder="mm">
         </div>
         <div class="cfg-panel-field"><label>Gjerësia (mm) *</label>
-          <input type="number" id="amff-larg-${materialId}" min="1" step="1" value="1220">
+          <input type="number" id="amff-larg-${materialId}" min="1" step="1" placeholder="mm">
         </div>
         <div class="cfg-panel-field"><label>Trashësia (mm) *</label>
-          <input type="number" id="amff-thickness-${materialId}" min="0.1" step="0.1" value="18" placeholder="mm">
+          <input type="number" id="amff-thickness-${materialId}" min="0.1" step="0.1" placeholder="mm">
         </div>
       </div>
       <div class="cfg-add-form-actions">
@@ -5991,9 +6395,11 @@ function renderTeniesList() {
   const tenies = P.tenies || [];
   if(tenies.length === 0) {
     wrap.innerHTML = '<div class="cfg-empty">Ende nuk ka tenije të konfiguruara.</div>';
+    if (typeof _cfgUpdateTabCounts === 'function') _cfgUpdateTabCounts();
     return;
   }
   wrap.innerHTML = tenies.map(t => tenieRowHtml(t)).join('');
+  if (typeof _cfgUpdateTabCounts === 'function') _cfgUpdateTabCounts();
 }
 
 function tenieRowHtml(t) {
@@ -6220,7 +6626,8 @@ function addBlock(materialId, formatId) {
     dimMode: 'Fikse',
     dimAdd: 0,
     cutDir: 'auto',
-    tenieId: defaultTenieId
+    tenieId: defaultTenieId,
+    printLabels: true,   // per-block WinCut-label toggle (see openOrder backfill)
   };
   block.rows.push(makeRow(block));
   blocks.push(block);
@@ -7934,6 +8341,10 @@ function renderBlock(b) {
         <span class="mat-badge">${escHtml(getMaterialBehavior(getMaterialById(b.materialId)).name.toUpperCase())}</span>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
+        <label onclick="event.stopPropagation();" title="Aktivizuar: WinCut printon një etiketë për çdo copë. Çaktivizuar: nuk printohet asnjë etiketë për këtë material." style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#374151;background:#f8fafc;border:1px solid #d4d7df;border-radius:7px;padding:5px 9px;cursor:pointer;user-select:none;">
+          <input type="checkbox" ${b.printLabels === false ? '' : 'checked'} onclick="event.stopPropagation();setBlockPrintLabels(${b.id}, this.checked)" style="cursor:pointer;margin:0;">
+          <span>&#128209; Printo Etiketat</span>
+        </label>
         <button class="btn-change-format" onclick="event.stopPropagation();printoDokumentin(${b.id})" title="Printo vetëm këtë material" style="color:#0e7a59;border-color:#bcecd8;">
           &#128424; <span>Printo Dokumentin</span>
         </button>
@@ -10351,6 +10762,42 @@ function _buildImportQueueForBlock(block) {
   return queue;
 }
 
+// Per-block label-printing gate.  When `block.printLabels === false`, blanks
+// every `(K)` reference in the [Riferimenti] section so WinCut emits no
+// label for any cut on this material.  The .txt structure stays identical —
+// only the parenthesised lookups are stripped — so the saw still receives a
+// valid cut program; it just doesn't fire the labeler.  Default behavior
+// (printLabels truthy) returns the input unchanged.
+//
+// Why post-process at download time (rather than re-baking p.content):
+//   The optimizer + manual-editor pipelines pre-compute the .txt once and
+//   cache it on `p.content`.  Toggling the checkbox should be instant — no
+//   re-optimize, no re-edit pass.  This helper runs at every export site
+//   (downloadFile, _collectWincutFiles) and is a single regex pass, so the
+//   toggle is effectively free.
+function _stripLabelRefsIfDisabled(content, block) {
+  if (!block || block.printLabels !== false) return content;
+  if (!content) return content;
+  // Only [Riferimenti] lines look like `N=(K)`.  [Righe] has commas after `=`
+  // (`N=TYPE,VAL,...`), [Dati] starts with `,,` (`N=,,1,CuttElab,...`), so
+  // this regex is safe to run on the full file without confining to a section.
+  return content.replace(/^(\d+)=\(\d+\)$/gm, '$1=');
+}
+
+// Toggle handler bound to the per-block "Printo Etiketat" checkbox in the
+// block header.  Just flips `b.printLabels`; the strip helper above reads
+// the field at download time.  Re-rendering the block header is unnecessary
+// since the checkbox already reflects the new state via `this.checked`.
+function setBlockPrintLabels(bid, on) {
+  const b = blocks.find(x => x.id === bid);
+  if (!b) return;
+  b.printLabels = !!on;
+  // Toast keeps the operator sure the click registered — no other UI changes.
+  shellToast(b.printLabels
+    ? `Etiketat e ${b.name} do të printohen ✓`
+    : `Etiketat e ${b.name} u çaktivizuan`);
+}
+
 function _injectCodesIntoTxt(content, block, importQueue) {
   if (!content || !block || !Array.isArray(block.rows)) return content;
   // Build a fresh queue if the caller didn't share one. Single-panel
@@ -10503,18 +10950,94 @@ function _injectCodesIntoTxt(content, block, importQueue) {
   const newDatiSection = ['[Dati]', 'NumeroDati=' + nextIdx, ...expandedLines];
   lines.splice(datiStart, datiEnd - datiStart, ...newDatiSection);
 
-  // Remap any (K) reference in [Riferimenti] to point at the new first-piece
-  // index for type K. Cut planner still gets correct dimensions; label printer
-  // uses the [Dati] entries directly (one label per entry).
-  let inRif = false;
-  for (let i = datiStart + newDatiSection.length; i < lines.length; i++) {
-    if (lines[i] === '[Riferimenti]') { inRif = true; continue; }
-    if (lines[i].startsWith('['))     { inRif = false; continue; }
-    if (!inRif) continue;
-    lines[i] = lines[i].replace(/\((\d+)\)/g, (match, n) => {
-      const newN = idxMap.get(parseInt(n));
-      return newN ? '(' + newN + ')' : match;
-    });
+  // ── Expand multi-rep cuts in [Righe] + remap [Riferimenti] ──────────
+  // The server emits a single cut row like `U,140.000000,3` (rep=3 produces
+  // 3 pieces) and ONE reference line `(K)` pointing at piece type K. WinCut
+  // prints labels from [Riferimenti] (one label per (N) reference), so a
+  // single (N) only triggers ONE printer fire even when the cut produces N
+  // pieces — the rest never get labels. Fix: split every piece-producing
+  // multi-rep cut into N rep=1 cuts and assign each a unique sequential
+  // [Dati] reference within its type's expanded range.
+  //
+  // For example, with type K → new indices [4..6] (qty=3):
+  //   Before:  [Righe]  8=V,140,3   [Riferimenti]  8=(K)
+  //   After:   [Righe]  8=V,140,1   [Riferimenti]  8=(4)
+  //            [Righe]  9=V,140,1   [Riferimenti]  9=(5)
+  //            [Righe] 10=V,140,1   [Riferimenti] 10=(6)
+  //
+  // Multiple cuts of the same type continue consuming the type's expanded
+  // range in order (e.g. two `(1) × rep 3` cuts produce indices 1..3, 4..6).
+  const typeRanges = new Map();
+  for (const od of oldDati) {
+    typeRanges.set(od.oldIdx, { start: idxMap.get(od.oldIdx), consumed: 0 });
+  }
+  // Locate [Righe] section (after the new [Dati] replacement above so
+  // line offsets are based on the new lines array).
+  let rigStart = -1, rigEnd = -1;
+  let rifStart = -1, rifEnd = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] === '[Righe]')        { rigStart = i; }
+    else if (rigStart >= 0 && rigEnd < 0 && lines[i].startsWith('['))     { rigEnd = i; }
+    if (lines[i] === '[Riferimenti]')  { rifStart = i; }
+    else if (rifStart >= 0 && rifEnd < 0 && lines[i].startsWith('['))     { rifEnd = i; }
+  }
+  if (rigEnd < 0) rigEnd = (rifStart >= 0) ? rifStart : lines.length;
+  if (rifEnd < 0) rifEnd = lines.length;
+  if (rigStart >= 0 && rifStart >= 0) {
+    // Parse [Righe] data rows (skip NumeroRighe= and section header).
+    const origRig = [];
+    for (let i = rigStart + 1; i < rigEnd; i++) {
+      const ln = lines[i];
+      if (ln.startsWith('NumeroRighe=')) continue;
+      const m = ln.match(/^(\d+)=([A-Z*]+),([0-9.]+),(\d+),(.+)$/);
+      if (m) origRig.push({ oldIdx: parseInt(m[1]), type: m[2], val: m[3], rep: parseInt(m[4]), suffix: m[5] });
+    }
+    // Parse [Riferimenti] lines.
+    const origRif = [];
+    for (let i = rifStart + 1; i < rifEnd; i++) {
+      const ln = lines[i];
+      const m = ln.match(/^(\d+)=(.*)$/);
+      if (!m) continue;
+      const refM = m[2].match(/^\((\d+)\)$/);
+      origRif.push({ oldIdx: parseInt(m[1]), refType: refM ? parseInt(refM[1]) : null });
+    }
+    // Walk paired rows. For each (Righe[i], Rif[i]) with rep>1 AND ref=(N),
+    // split into rep rep=1 rows assigned to sequential indices in type N's
+    // expanded range. Otherwise keep the row, renumber, and assign one
+    // sequential index when there's still a reference.
+    const newRig = [];
+    const newRif = [];
+    let cur = 0;
+    const pairs = Math.max(origRig.length, origRif.length);
+    for (let i = 0; i < pairs; i++) {
+      const r = origRig[i];
+      const f = origRif[i] || { refType: null };
+      if (!r) continue;
+      const range = (f.refType != null) ? typeRanges.get(f.refType) : null;
+      if (range && r.rep > 1) {
+        for (let k = 0; k < r.rep; k++) {
+          cur++;
+          newRig.push(`${cur}=${r.type},${r.val},1,${r.suffix}`);
+          newRif.push(`${cur}=(${range.start + range.consumed})`);
+          range.consumed++;
+        }
+      } else {
+        cur++;
+        newRig.push(`${cur}=${r.type},${r.val},${r.rep},${r.suffix}`);
+        if (range) {
+          newRif.push(`${cur}=(${range.start + range.consumed})`);
+          range.consumed++;
+        } else {
+          newRif.push(`${cur}=`);
+        }
+      }
+    }
+    // Splice [Riferimenti] first (it's after [Righe]) so [Righe] indices
+    // stay valid while we update. Doing the higher-offset section first.
+    const newRifSection = ['[Riferimenti]', ...newRif];
+    lines.splice(rifStart, rifEnd - rifStart, ...newRifSection);
+    const newRigSection = ['[Righe]', 'NumeroRighe=' + cur, ...newRig];
+    lines.splice(rigStart, rigEnd - rigStart, ...newRigSection);
   }
   return lines.join('\r\n');
 }
@@ -12025,7 +12548,10 @@ function downloadFile(bid, idx) {
   }
   const p = b.panels[idx];
   const dispatch = (content, suffix) => {
-    const blob = new Blob([content], { type: 'text/plain' });
+    // Apply the per-block "Printo Etiketat" toggle: when off, blanks all
+    // [Riferimenti] references so WinCut prints no labels for this material.
+    const out = _stripLabelRefsIfDisabled(content, b);
+    const blob = new Blob([out], { type: 'text/plain' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `CUTLST0${idx}${suffix}.txt`;
@@ -12074,14 +12600,19 @@ function exportAllFiles_header() {
 function _collectWincutFiles(klienti, fatura) {
   const files = [];
   for (const b of blocks) {
+    // Apply the per-block "Printo Etiketat" toggle once per block so every
+    // panel of a material respects the same setting.  Materials with the box
+    // checked stream verbatim; un-checked materials get [Riferimenti] refs
+    // stripped so WinCut emits no labels for them.
+    const strip = (c) => _stripLabelRefsIfDisabled(c, b);
     b.panels.forEach((p, pi) => {
       const idx  = String(pi + 1).padStart(2, '0');
       const base = `${klienti}_${fatura}_${b.name}_${idx}`;
       if (p._splitInfo && Array.isArray(p._splitInfo.parts) && p._splitInfo.parts.length === 2) {
-        files.push([`${base}_A.txt`, p._splitInfo.parts[0].content]);
-        files.push([`${base}_B.txt`, p._splitInfo.parts[1].content]);
+        files.push([`${base}_A.txt`, strip(p._splitInfo.parts[0].content)]);
+        files.push([`${base}_B.txt`, strip(p._splitInfo.parts[1].content)]);
       } else {
-        files.push([`${base}.txt`, p.content]);
+        files.push([`${base}.txt`, strip(p.content)]);
       }
     });
   }
@@ -12336,7 +12867,7 @@ function drawTable(doc, cols, rows, startY, opts={}) {
 
   // Data rows — white bg, very light alt stripe
   rows.forEach((row,ri)=>{
-    if(y > 270){ doc.addPage(); y=14; }
+    if(y > 270){ doc.addPage(); y = opts.afterPageY || 14; }
     if(ri%2===1){
       doc.setFillColor(246,246,248);
       doc.rect(mg,y,W-2*mg,rowH,'F');
@@ -12523,6 +13054,19 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
   const mg=14, W=210;
   let y = drawPdfHeader(doc, klienti, fatura, data, 'DOKUMENT MATERIALESH');
 
+  // Re-draw the page header (logo + title + Klient/Fatura/Data line) on
+  // every NEW page. Monkey-patching addPage scoped to this single jsPDF
+  // instance — the invoice PDF (different `doc`) is unaffected. Every
+  // caller that does `doc.addPage()` (block boundaries, drawTable
+  // overflow, footer) automatically inherits the header redraw.
+  const _origAddPage = doc.addPage.bind(doc);
+  doc.addPage = function() {
+    _origAddPage.apply(this, arguments);
+    drawPdfHeader(doc, klienti, fatura, data, 'DOKUMENT MATERIALESH');
+    return this;
+  };
+  const Y_AFTER_HEADER = 36;
+
   // When `onlyBlockId` is supplied, render just that single material —
   // used by the per-block "Printo Dokumentin" button so operators can
   // print one material section without printing the whole order.
@@ -12537,8 +13081,10 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
     // Each material starts at the TOP of a fresh page.  The info box is
     // therefore drawn exactly once per material (at the top of its first
     // page) and never repeats when that material's row table spills onto
-    // following pages — the table just continues, no header reprint.
-    if(!firstBlock){ doc.addPage(); y=14; }
+    // following pages — the table just continues. The page HEADER (logo
+    // + title + klient/fatura/data) IS repeated on every page via the
+    // patched doc.addPage above.
+    if(!firstBlock){ doc.addPage(); y = Y_AFTER_HEADER; }
     firstBlock = false;
     y+=4;
     y = drawSectionBar(doc, `${b.name}  ·  ${b.rows.filter(r=>parseInt(r.s)>0).length} rreshta`, color, y);
@@ -12604,8 +13150,10 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
           {text: l>0?Math.round(l)+' mm':'—', lines: l>=g?ag:as_},
           {text: g>0?Math.round(g)+' mm':'—', lines: g>l?ag:as_},
           {text: r.s||'—'},
-          {text: r.anen||'1A', hl: r.anen==='2A'},
-          r.lyerje!==false ? 'X' : '',
+          // Anët (sides to paint) is meaningless when the row isn't being
+          // painted — show empty there instead of a misleading "1A" badge.
+          r.lyerje === false ? '' : {text: r.anen||'1A', hl: r.anen==='2A'},
+          r.lyerje !== false ? 'X' : '',
         ];
         if(hasFrezim) row.push(r.frezim ? 'X' : '');
         row.push(r.koment||'');
@@ -12634,8 +13182,10 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
           {text: r.l ? Math.round(parseFloat(r.l))+' mm' : '—', lines: 0},
           {text: r.g ? Math.round(parseFloat(r.g))+' mm' : '—', lines: 0},
           {text: r.s||'—'},
-          {text: r.anen||'1A', hl: r.anen==='2A'},
-          r.lyerje!==false ? 'X' : '',
+          // Anët (sides to paint) is meaningless when the row isn't being
+          // painted — show empty there instead of a misleading "1A" badge.
+          r.lyerje === false ? '' : {text: r.anen||'1A', hl: r.anen==='2A'},
+          r.lyerje !== false ? 'X' : '',
         ];
         if(hasFrezim) row.push(r.frezim ? 'X' : '');
         row.push(r.koment||'');
@@ -12648,7 +13198,7 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
       doc.setFont('helvetica','italic'); doc.setFontSize(7.5); doc.setTextColor(160,160,160);
       doc.text('(nuk ka rreshta me të dhëna)', mg+4, y+4); y+=10;
     } else {
-      y = drawTable(doc, cols, rows, y, tableOpts);
+      y = drawTable(doc, cols, rows, y, { ...tableOpts, afterPageY: Y_AFTER_HEADER });
     }
 
     // Totals strip — only TOTAL COPË now
@@ -12662,7 +13212,7 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
   }
 
   // Footer
-  if(y>270){ doc.addPage(); y=14; }
+  if(y>270){ doc.addPage(); y = Y_AFTER_HEADER; }
   y+=4;
   doc.setDrawColor(180,180,200); doc.setLineWidth(0.2); doc.line(mg,y,W-mg,y); y+=5;
   doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(160,160,180);
@@ -13094,9 +13644,10 @@ function renderKbCard(order, state) {
 // v12: move an order to a target kanban column. Used by drag-drop AND by the
 // detail sidebar's quick-status buttons. Allows any transition (including out
 // of 'derguar', which used to require the dedicated "Zhbëj" button).
-function moveKbOrderTo(orderId, targetCol) {
+async function moveKbOrderTo(orderId, targetCol) {
   if(!KB_COLS.find(c => c.id === targetCol)) return;
   const idStr = String(orderId);
+  const prevCol = (_KANBAN_CACHE[idStr] && _KANBAN_CACHE[idStr].col) || 'pritje';
   if(!_KANBAN_CACHE[idStr]) _KANBAN_CACHE[idStr] = { col: targetCol };
   else _KANBAN_CACHE[idStr].col = targetCol;
   persistKanbanForOrder(orderId);
@@ -13107,7 +13658,88 @@ function moveKbOrderTo(orderId, targetCol) {
     openKbDetail(orderId);
   }
   const colInfo = KB_COLS.find(c => c.id === targetCol);
-  shellToast(`${colInfo ? colInfo.icon + ' ' : ''}${colInfo ? colInfo.label : targetCol}`, 'ok');
+  let toastMsg = `${colInfo ? colInfo.icon + ' ' : ''}${colInfo ? colInfo.label : targetCol}`;
+
+  // Column drag → cascade into per-block workflow:
+  //   → perfunduar / derguar : mark every applicable stage (+ paint sub-stages) as DONE
+  //   → procesim / pritje    : reset every stage back to PENDING (workflow restart)
+  // Skip if the column didn't actually change.
+  if (prevCol !== targetCol) {
+    try {
+      const result = await _wfApplyOrderColumnTransition(orderId, targetCol);
+      if (result && result.changed) {
+        if (targetCol === 'perfunduar' || targetCol === 'derguar') {
+          toastMsg += ' · Të gjitha proceset u shënuan si të mbaruara';
+        } else if (targetCol === 'procesim' || targetCol === 'pritje') {
+          toastMsg += ' · Workflow u rivendos';
+        }
+      }
+    } catch (e) {
+      console.error('[wf] column transition workflow update failed:', e);
+    }
+  }
+  shellToast(toastMsg, 'ok');
+}
+
+// Drag-on-Kanban side-effect: rewrite an order's per-block workflow to
+// match the new column. Single Firestore write; updates the dept cache.
+async function _wfApplyOrderColumnTransition(orderId, targetCol) {
+  const allowed = ['pritje', 'procesim', 'perfunduar', 'derguar'];
+  if (!allowed.includes(targetCol)) return { changed: false };
+
+  const order = await loadFullOrder(orderId);
+  if (!order || !Array.isArray(order.blocks)) return { changed: false };
+
+  let changed = false;
+  const now = Date.now();
+  const setStage = (st, status) => {
+    if (st.status !== status) {
+      st.status = status;
+      if (status === 'done')    st.doneAt = now;
+      if (status === 'pending') st.doneAt = null;
+      changed = true;
+    }
+  };
+
+  for (const block of order.blocks) {
+    wfEnsureBlockWorkflow(block);
+    const applicable = wfApplicableStages(block);
+
+    if (targetCol === 'perfunduar' || targetCol === 'derguar') {
+      // Mark every applicable top-level stage + paint sub-stage as done.
+      for (const stage of WF_STAGES) {
+        if (applicable[stage]) setStage(block.workflow[stage], 'done');
+      }
+      if (applicable.paint) {
+        for (const sub of WF_PAINT_SUBSTAGES) {
+          setStage(block.workflow.paint.substages[sub], 'done');
+        }
+      }
+    } else if (targetCol === 'procesim' || targetCol === 'pritje') {
+      // Reset everything back to pending — including sub-stages.
+      for (const stage of WF_STAGES) {
+        setStage(block.workflow[stage], 'pending');
+      }
+      for (const sub of WF_PAINT_SUBSTAGES) {
+        setStage(block.workflow.paint.substages[sub], 'pending');
+      }
+    }
+  }
+
+  if (changed) {
+    await db.collection('porosite').doc(String(orderId))
+      .update({ blocks: order.blocks });
+    // Bust the dept-view cache so the dept tabs reflect the new state on
+    // their next render (cards reappear / disappear as appropriate).
+    if (window._wfDept) {
+      window._wfDept.loadedAt = 0;
+      if (Array.isArray(window._wfDept.orders)) {
+        const cached = window._wfDept.orders.find(o => o.id === orderId);
+        if (cached) cached.blocks = order.blocks;
+      }
+    }
+  }
+  return { changed };
 }
 
 // ── Detail sidebar ───────────────────────────────────────────────
@@ -13357,30 +13989,372 @@ function wfSetView(view) {
     const el = document.getElementById(id);
     if (el) el.style.display = on ? '' : 'none';
   };
-  show('wf-view-board', view === 'board');
-  show('wf-view-order', view === 'order');
-  show('wf-view-block', view === 'block');
-  // Stop any active Firestore listener when leaving the order/block views.
-  if (view === 'board' && _wfFirestoreUnsub) {
+  show('wf-view-departments', view === 'departments');
+  show('wf-view-board',       view === 'board');
+  show('wf-view-order',       view === 'order');
+  show('wf-view-block',       view === 'block');
+  // Stop any active Firestore listener when we leave a view that subscribed.
+  if ((view === 'departments' || view === 'board') && _wfFirestoreUnsub) {
     try { _wfFirestoreUnsub(); } catch(e) {}
     _wfFirestoreUnsub = null;
   }
 }
 
+// Back to the dept landing — the new default management entry.
+function wfBackToDepartments() {
+  _wfState.orderId = null;
+  _wfState.blockId = null;
+  _wfState.order   = null;
+  _wfState.deptContext = null;
+  _wfState.openedFrom  = null;
+  _wfState.readOnly    = false;   // dept view is always actionable
+  wfSetView('departments');
+  wfDrawDestroy();
+  renderDepartments(_wfDept.currentTab, true);
+}
+
+// Show the legacy order Kanban (Pritje / Procesim / Përfunduar / Dorëzuar).
+// Reached via the "📋 Pamje porosish" button in the dept toolbar — gives admins
+// a status overview that floor managers don't need (they have the dept tabs).
+// Everything drilled into FROM this path is READ-ONLY: tap an order → see
+// blocks + statuses but no clicking to mark anything done, no drawing tools,
+// no Mbarova button. The only allowed mutation is dragging an order card
+// between the four kanban columns on the board itself.
+function wfShowOrderOverview() {
+  _wfState.openedFrom = 'orderOverview';
+  _wfState.readOnly   = true;
+  wfSetView('board');
+  if (typeof renderKanban === 'function') renderKanban();
+}
+
+// Single source of truth for "should this view be read-only?". Set when
+// the user drilled in from the order Kanban; cleared when they return to
+// the dept landing.
+function _wfIsReadOnly() { return !!_wfState.readOnly; }
+
 function wfBackToBoard() {
+  // Back from View 2 → return to the order Kanban overview.
   _wfState.orderId = null;
   _wfState.blockId = null;
   _wfState.order   = null;
   wfSetView('board');
-  // Re-render the Kanban so the cards show the latest progress strips.
   if (typeof renderKanban === 'function') renderKanban();
 }
 
 function wfBackToOrder() {
+  // Back from View 3 (block workspace) → return to the per-order block list
+  // (View 2). Only reached when the user drilled in from the order Kanban,
+  // not from the dept landing.
   _wfState.blockId = null;
+  _wfState.deptContext = null;
   wfSetView('order');
   wfRenderOrderDetail();
-  wfDrawDestroy();   // cleans up any drawing canvas listeners
+  wfDrawDestroy();
+}
+
+// Smart back-from-block: route based on which view the user originated from.
+//   dept card  → back to dept landing
+//   View 2     → back to View 2
+// Default = dept landing (the primary entry).
+function wfBackFromBlock() {
+  if (_wfState.openedFrom === 'order') wfBackToOrder();
+  else                                 wfBackToDepartments();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// VIEW 0 — Department-grouped landing
+// ═══════════════════════════════════════════════════════════════════
+// Replaces the order-Kanban as the default Menaxhim entry. Four tabs
+// (Sharra / Bordim / CNC / Lyerje) each list material cards that need
+// work in that specific department. Sequential rule still enforced — a
+// block only appears in dept D when its previous stages are done. Each
+// card → tap → opens View 3 with that dept's context so the workspace
+// action bar shows the right "Mbarov" button.
+
+const WF_DEPT_ORDER  = ['saw', 'board', 'cnc', 'paint'];
+const WF_DEPT_LABELS = { saw: 'Sharra', board: 'Bordim', cnc: 'CNC', paint: 'Lyerje' };
+
+window._wfDept = {
+  currentTab: 'saw',
+  orders: null,       // cached array of full order docs (in-progress only)
+  loadedAt: 0,
+  cacheTTL: 60000,
+};
+
+// Load all "active" (procesim or perfunduar) orders' full docs into memory.
+// procesim = currently being worked on, perfunduar = all blocks done but
+// not yet delivered (managers might still want visibility / reverts). We
+// skip pritje (not started) and derguar (delivered).
+async function _wfLoadActiveOrders(force) {
+  const now = Date.now();
+  if (!force && _wfDept.orders && (now - _wfDept.loadedAt) < _wfDept.cacheTTL) {
+    return _wfDept.orders;
+  }
+  const summaries = (typeof loadOrders === 'function') ? loadOrders() : [];
+  const kd = (typeof loadKanbanData === 'function') ? loadKanbanData() : {};
+  const activeSummaries = summaries.filter(s => {
+    const col = (kd[s.id] && kd[s.id].col) || 'pritje';
+    return col === 'procesim' || col === 'perfunduar';
+  });
+  // Parallel load — caps practical concurrency to ~6 by browser anyway.
+  const fullOrders = await Promise.all(
+    activeSummaries.map(s => loadFullOrder(s.id).catch(err => {
+      console.warn('[wf-dept] order ' + s.id + ' load failed:', err);
+      return null;
+    }))
+  );
+  _wfDept.orders = fullOrders.filter(Boolean);
+  _wfDept.loadedAt = now;
+  // Ensure each block has its workflow shape initialised so wfStageStatus
+  // works without surprises on legacy orders.
+  for (const o of _wfDept.orders) {
+    for (const b of (o.blocks || [])) wfEnsureBlockWorkflow(b);
+  }
+  return _wfDept.orders;
+}
+
+// Return [{order, block, blockIdx}, …] for all blocks where the requested
+// dept is the NEXT pending stage (i.e. status === 'pending' and not 'locked'
+// because all earlier applicable stages are already done).
+function _wfGetBlocksForDept(deptId) {
+  const out = [];
+  for (const order of (_wfDept.orders || [])) {
+    const blocks = order.blocks || [];
+    for (let idx = 0; idx < blocks.length; idx++) {
+      const block = blocks[idx];
+      if (wfStageStatus(block, deptId) === 'pending') {
+        out.push({ order, block, blockIdx: idx });
+      }
+    }
+  }
+  // Oldest order first — earliest dates get worked on first.
+  out.sort((a, b) =>
+    String(a.order.data || '').localeCompare(String(b.order.data || ''))
+    || (a.order.id - b.order.id)
+  );
+  return out;
+}
+
+// Update each tab's count badge.
+function _wfDeptUpdateCounts() {
+  for (const d of WF_DEPT_ORDER) {
+    const el = document.getElementById('wf-dept-count-' + d);
+    if (el) el.textContent = _wfGetBlocksForDept(d).length;
+  }
+  const sub = document.getElementById('wf-dept-subtitle');
+  if (sub) {
+    const totalActive = (_wfDept.orders || []).length;
+    sub.textContent = `${totalActive} porosi aktive`;
+  }
+}
+
+async function renderDepartments(deptId, forceReload) {
+  if (deptId) _wfDept.currentTab = deptId;
+  const dept = _wfDept.currentTab;
+  wfSetView('departments');
+  // Update tab highlight
+  document.querySelectorAll('.wf-dept-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.dept === dept);
+  });
+  const body = document.getElementById('wf-dept-body');
+  if (!body) return;
+  body.innerHTML = `<div class="wf-dept-empty">Po ngarkohen porositë…</div>`;
+  await _wfLoadActiveOrders(forceReload);
+  _wfDeptUpdateCounts();
+  const blocks = _wfGetBlocksForDept(dept);
+  if (blocks.length === 0) {
+    body.innerHTML = `<div class="wf-dept-empty">Nuk ka punë për ${escHtml(WF_DEPT_LABELS[dept])} në këtë moment.</div>`;
+    return;
+  }
+  body.innerHTML = blocks.map(item => _wfDeptCardHtml(item, dept)).join('');
+}
+
+function setDeptTab(deptId) {
+  // Tab swap doesn't need a server reload — just re-filter the cached orders.
+  renderDepartments(deptId, false);
+}
+
+// What's the next APPLICABLE dept after the given one for a block? Returns
+// the dept id or null if this is the block's last applicable stage.
+function _wfNextDeptAfter(block, currentDept) {
+  const applicable = wfApplicableStages(block);
+  const idx = WF_DEPT_ORDER.indexOf(currentDept);
+  for (let i = idx + 1; i < WF_DEPT_ORDER.length; i++) {
+    const d = WF_DEPT_ORDER[i];
+    if (applicable[d]) return d;
+  }
+  return null;
+}
+
+function _wfDeptCardHtml(item, dept) {
+  const { order, block, blockIdx } = item;
+  const liveName = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri)
+                    || order.klient_emri || '—';
+  const dot = MAT_DOT_COLORS[block.type] || '#888';
+  const totCope = (block.rows || []).reduce((s, r) => s + (parseInt(r.s) || 0), 0);
+  const nPanels = (block.panels || []).length;
+  // Next-step hint shown on every card: tells the operator what dept will
+  // pick this block up after they finish, or that this is the final stage.
+  const nextDept = _wfNextDeptAfter(block, dept);
+  const nextLine = nextDept
+    ? `<div class="wf-dept-card-next">Pas kësaj: <b>${escHtml(WF_DEPT_LABELS[nextDept])}</b></div>`
+    : `<div class="wf-dept-card-next wf-dept-card-last">Procesi i fundit</div>`;
+
+  // Lyerje cards: replace the [Mbarova] button with FOUR inline pills, one
+  // per sub-stage, each independently tappable. Sequential rule still
+  // applies (you can't mark Pastë 1 done until Zmerilim is done).
+  if (dept === 'paint') {
+    const subs = (block.workflow && block.workflow.paint && block.workflow.paint.substages) || {};
+    const nextKey = WF_PAINT_SUBSTAGES.find(k => (subs[k] && subs[k].status) !== 'done');
+    const pillsHtml = WF_PAINT_SUBSTAGES.map(sk => {
+      const isDone   = subs[sk] && subs[sk].status === 'done';
+      const isNext   = sk === nextKey;
+      const isLocked = !isDone && !isNext;
+      const cls = isDone ? 'done' : isNext ? 'next' : 'locked';
+      const click = isLocked ? '' : `onclick="event.stopPropagation();wfTogglePaintSub(${order.id},${blockIdx},'${sk}')"`;
+      return `<span class="wf-dept-sub-pill ${cls}" ${click}>
+        <span class="ck">${isDone ? '✓' : ''}</span>
+        ${escHtml(WF_PAINT_SUBLABELS[sk])}
+      </span>`;
+    }).join('');
+    return `<div class="wf-dept-card" onclick="wfOpenBlockFromDept(${order.id},${blockIdx},'${dept}')">
+      <span class="wf-dept-card-dot" style="background:${dot}"></span>
+      <div class="wf-dept-card-meta">
+        <div class="order">${escHtml(liveName)} · #${escHtml(String(order.fatura || order.id))}</div>
+        <div class="date">${escHtml(order.data || '—')}</div>
+      </div>
+      <div class="wf-dept-card-main">
+        <div class="wf-dept-card-mat">${escHtml(block.name || block.type || '—')}</div>
+        <div class="wf-dept-card-stats">${totCope} copë${nPanels ? ' · ' + nPanels + ' panele' : ''}</div>
+        <div class="wf-dept-sub-row">${pillsHtml}</div>
+        ${nextLine}
+      </div>
+      <div class="wf-dept-card-actions" onclick="event.stopPropagation()">
+        <button class="btn btn-sm" onclick="wfOpenBlockFromDept(${order.id},${blockIdx},'${dept}')" style="background:#1a4a8c;color:#fff;">📄 Hap dokumentin</button>
+      </div>
+    </div>`;
+  }
+
+  // Saw / Bordim / CNC: single Mbarova button advances the whole stage.
+  return `<div class="wf-dept-card" onclick="wfOpenBlockFromDept(${order.id},${blockIdx},'${dept}')">
+    <span class="wf-dept-card-dot" style="background:${dot}"></span>
+    <div class="wf-dept-card-meta">
+      <div class="order">${escHtml(liveName)} · #${escHtml(String(order.fatura || order.id))}</div>
+      <div class="date">${escHtml(order.data || '—')}</div>
+    </div>
+    <div class="wf-dept-card-main">
+      <div class="wf-dept-card-mat">${escHtml(block.name || block.type || '—')}</div>
+      <div class="wf-dept-card-stats">${totCope} copë${nPanels ? ' · ' + nPanels + ' panele' : ''}</div>
+      ${nextLine}
+    </div>
+    <div class="wf-dept-card-actions" onclick="event.stopPropagation()">
+      <button class="btn btn-sm" onclick="wfOpenBlockFromDept(${order.id},${blockIdx},'${dept}')" style="background:#1a4a8c;color:#fff;">📄 Hap dokumentin</button>
+      <button class="btn btn-sm" onclick="wfMarkDeptDone(${order.id},${blockIdx},'${dept}')" style="background:#16a34a;color:#fff;font-weight:700;">✓ Mbarova</button>
+    </div>
+  </div>`;
+}
+
+// Per-pill tap on the Lyerje cards: toggles ONE sub-stage. Marks pending →
+// done outright (no confirm); marks done → pending with a confirm so an
+// accidental tap doesn't undo a coat someone already finished.
+async function wfTogglePaintSub(orderId, blockIdx, subKey) {
+  const order = (_wfDept.orders || []).find(o => o.id === orderId);
+  if (!order) return;
+  const block = order.blocks[blockIdx];
+  wfEnsureBlockWorkflow(block);
+  const cur = block.workflow.paint.substages[subKey].status;
+  let next = null;
+  if (cur === 'done') {
+    if (!confirm(`Rikthe "${WF_PAINT_SUBLABELS[subKey]}" te "Në pritje"?`)) return;
+    next = 'pending';
+  } else {
+    next = 'done';
+  }
+  const savedOrder = _wfState.order;
+  const savedBlockId = _wfState.blockId;
+  _wfState.order   = order;
+  _wfState.blockId = blockIdx;
+  await wfApplyStageChange(blockIdx, 'paint', subKey, next);
+  _wfState.order   = savedOrder;
+  _wfState.blockId = savedBlockId;
+  _wfDeptUpdateCounts();
+  renderDepartments(_wfDept.currentTab, false);
+}
+
+// Card → open the block workspace (View 3) carrying dept context, so the
+// action bar there shows "Mbarov" for the right stage / sub-stage.
+async function wfOpenBlockFromDept(orderId, blockIdx, deptId) {
+  let order = (_wfDept.orders || []).find(o => o.id === orderId);
+  if (!order) {
+    order = await loadFullOrder(orderId);
+    if (!order) { shellToast('Porosia nuk u gjet','err'); return; }
+  }
+  _wfState.order   = order;
+  _wfState.orderId = orderId;
+  _wfState.blockId = blockIdx;
+  _wfState.deptContext = deptId;
+  _wfState.openedFrom  = 'departments';
+  const block = order.blocks[blockIdx];
+  wfEnsureBlockWorkflow(block);
+  const liveName = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri)
+                    || order.klient_emri || '—';
+  const orderNameEl = document.getElementById('wf-block-order-name');
+  const blockNameEl = document.getElementById('wf-block-name');
+  if (orderNameEl) orderNameEl.textContent = `${liveName} · #${order.fatura || order.id}`;
+  if (blockNameEl) blockNameEl.textContent = block.name || block.type || '—';
+  wfSetView('block');
+  wfRenderBlockSide();
+  wfRenderBlockActionBar();
+  await wfRenderBlockPdf(block);
+  // Live-sync this single order doc so multi-tablet edits propagate.
+  if (_wfFirestoreUnsub) { try { _wfFirestoreUnsub(); } catch(e) {} _wfFirestoreUnsub = null; }
+  try {
+    _wfFirestoreUnsub = db.collection('porosite').doc(String(orderId))
+      .onSnapshot(snap => {
+        if (!snap.exists) return;
+        const fresh = snap.data();
+        const freshBlocks = fresh.blocks || [];
+        if (_wfState.order && Array.isArray(_wfState.order.blocks)) {
+          _wfState.order.blocks.forEach((b, i) => {
+            if (freshBlocks[i] && freshBlocks[i].workflow) b.workflow = freshBlocks[i].workflow;
+          });
+        }
+        if (_wfState.view === 'block') wfRenderBlockSide();
+      }, err => { console.warn('[wf] snapshot error:', err); });
+  } catch (e) { console.warn('[wf] onSnapshot attach failed:', e); }
+}
+
+// Card "Mbarov" button — advances just this block's current dept stage
+// (or current paint sub-stage if dept=paint). Stays on the dept view; card
+// disappears after re-render.
+async function wfMarkDeptDone(orderId, blockIdx, deptId) {
+  const order = (_wfDept.orders || []).find(o => o.id === orderId);
+  if (!order) return;
+  const block = order.blocks[blockIdx];
+  wfEnsureBlockWorkflow(block);
+
+  // Set _wfState briefly so wfApplyStageChange has its expected globals.
+  // We clear it immediately after — we're not actually navigating to View 3.
+  const savedOrder = _wfState.order;
+  const savedBlockId = _wfState.blockId;
+  _wfState.order   = order;
+  _wfState.blockId = blockIdx;
+
+  if (deptId === 'paint') {
+    const subs = block.workflow.paint.substages;
+    const next = WF_PAINT_SUBSTAGES.find(k => subs[k].status !== 'done');
+    if (next) await wfApplyStageChange(blockIdx, 'paint', next, 'done');
+  } else {
+    await wfApplyStageChange(blockIdx, deptId, null, 'done');
+  }
+
+  _wfState.order   = savedOrder;
+  _wfState.blockId = savedBlockId;
+
+  // Re-render dept view from updated cache (in-memory block.workflow is now mutated).
+  _wfDeptUpdateCounts();
+  renderDepartments(_wfDept.currentTab, false);
+  shellToast(`✓ ${WF_DEPT_LABELS[deptId]} — ${block.name || ''}`, 'ok');
 }
 
 // ─── View 1: mini pipeline strip on Kanban cards ──────────────────
@@ -13443,18 +14417,25 @@ async function wfOpenOrder(orderId) {
 function wfRenderOrderDetail() {
   const order = _wfState.order;
   if (!order) return;
+  const ro = _wfIsReadOnly();
   const liveName = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri) || order.klient_emri || '—';
   document.getElementById('wf-order-title').textContent =
     `${liveName} · #${order.fatura || order.id || '—'} · ${order.data || '—'}`;
-  // Status pill group (column transitions)
-  const kd = loadKanbanData();
-  const state = kd[order.id] || { col: 'pritje' };
-  const pillHtml = KB_COLS.map(c => `
-    <button class="wf-status-pill${c.id === state.col ? ' active ' + c.id : ''}"
-            onclick="wfMoveOrderCol(${order.id},'${c.id}')">
-      ${c.icon} ${escHtml(c.label)}
-    </button>`).join('');
-  document.getElementById('wf-order-col-buttons').innerHTML = pillHtml;
+  // Column-status pills: hidden in read-only mode. Drag-drop on the Kanban
+  // board is the ONLY way to change the order's column in that context.
+  const colWrap = document.getElementById('wf-order-col-buttons');
+  if (ro) {
+    colWrap.innerHTML = '';
+  } else {
+    const kd = loadKanbanData();
+    const state = kd[order.id] || { col: 'pritje' };
+    const pillHtml = KB_COLS.map(c => `
+      <button class="wf-status-pill${c.id === state.col ? ' active ' + c.id : ''}"
+              onclick="wfMoveOrderCol(${order.id},'${c.id}')">
+        ${c.icon} ${escHtml(c.label)}
+      </button>`).join('');
+    colWrap.innerHTML = pillHtml;
+  }
   // Blocks
   const body = document.getElementById('wf-order-body');
   const blocks = order.blocks || [];
@@ -13479,8 +14460,11 @@ function wfBlockCardHtml(block, idx) {
   const totCope  = (block.rows || []).reduce((s, r) => s + (parseInt(r.s) || 0), 0);
   const nPanels  = (block.panels || []).length;
   const applicable = wfApplicableStages(block);
+  const ro = _wfIsReadOnly();
   // Render only applicable stages — N/A ones are hidden entirely (less
   // visual noise; the operator only sees what actually concerns this block).
+  // In READ-ONLY mode (admin viewing from order Kanban) stages have no
+  // click handlers — pure status display.
   const stagesHtml = WF_STAGES
     .filter(s => wfStageStatus(block, s) !== 'na')
     .map(s => {
@@ -13493,10 +14477,11 @@ function wfBlockCardHtml(block, idx) {
       const statusLabel = status === 'locked' ? 'I bllokuar'
                         : status === 'done'   ? 'Përfunduar'
                         : 'Në pritje';
-      const click = (status === 'locked')
+      const click = (ro || status === 'locked')
         ? ''
         : `onclick="wfStageAction(${idx},'${s}')"`;
-      return `<div class="wf-stage ${status === 'done' ? 'done' : status === 'locked' ? 'locked' : ''}" ${click}>
+      const extraCls = ro ? ' ro' : '';
+      return `<div class="wf-stage${extraCls} ${status === 'done' ? 'done' : status === 'locked' ? 'locked' : ''}" ${click}>
         <div class="wf-stage-icon">${status === 'done' ? '✓' : label.icon}</div>
         <div class="wf-stage-label">${label.sq}</div>
         <div class="wf-stage-status-label">${statusLabel}</div>
@@ -13504,7 +14489,8 @@ function wfBlockCardHtml(block, idx) {
       </div>`;
     }).join('');
 
-  // Paint sub-stages render only when Paint is applicable.
+  // Paint sub-stages render only when Paint is applicable. Read-only mode
+  // suppresses the click handlers.
   let paintSubHtml = '';
   if (applicable.paint) {
     const paintStatus = wfStageStatus(block, 'paint');
@@ -13512,10 +14498,11 @@ function wfBlockCardHtml(block, idx) {
     if (showSubs) {
       const subsHtml = WF_PAINT_SUBSTAGES.map(sub => {
         const st = wfPaintSubStatus(block, sub);
-        const click = (st === 'locked') ? '' : `onclick="wfPaintSubAction(${idx},'${sub}')"`;
+        const click = (ro || st === 'locked') ? '' : `onclick="wfPaintSubAction(${idx},'${sub}')"`;
         const wf = block.workflow.paint.substages[sub] || {};
         const time = (st === 'done' && wf.doneAt) ? new Date(wf.doneAt).toLocaleTimeString('sq-AL', { hour:'2-digit', minute:'2-digit' }) : '';
-        return `<div class="wf-paint-sub-stage ${st === 'done' ? 'done' : st === 'locked' ? 'locked' : ''}" ${click}>
+        const extraCls = ro ? ' ro' : '';
+        return `<div class="wf-paint-sub-stage${extraCls} ${st === 'done' ? 'done' : st === 'locked' ? 'locked' : ''}" ${click}>
           <div class="ps-label">${escHtml(WF_PAINT_SUBLABELS[sub])}</div>
           <div class="ps-status">${st === 'done' ? '✓ ' + (time || '') : st === 'locked' ? 'I bllokuar' : 'Në pritje'}</div>
         </div>`;
@@ -13606,21 +14593,24 @@ async function wfApplyStageChange(blockIdx, stage, subKey, nextStatus) {
     if (nextStatus === 'done')    st.doneAt = now;
     if (nextStatus === 'pending') st.doneAt = null;
   }
-  // Auto-flip the kanban column when the whole order is complete.
-  if (wfIsOrderDone(order)) {
-    const kd = loadKanbanData();
-    const cur = kd[order.id] && kd[order.id].col;
-    if (cur && cur !== 'perfunduar' && cur !== 'derguar') {
-      moveKbOrderTo(order.id, 'perfunduar');
-    }
-  }
-  // Persist: write only the blocks array (with updated workflow) to Firestore.
+  // Persist FIRST so any subsequent moveKbOrderTo → _wfApplyOrderColumnTransition
+  // reads the latest workflow from Firestore (rather than the pre-mutation copy).
   try {
     await db.collection('porosite').doc(String(order.id))
       .update({ blocks: order.blocks });
   } catch (e) {
     console.error('[wf] save failed:', e);
     shellToast('Ruajtja dështoi: ' + (e.message || e), 'err');
+  }
+  // Auto-flip the kanban column when the whole order is complete. The
+  // column-transition handler will then mark everything as done — a no-op
+  // here since wfIsOrderDone implies everything's already done.
+  if (wfIsOrderDone(order)) {
+    const kd = loadKanbanData();
+    const cur = kd[order.id] && kd[order.id].col;
+    if (cur && cur !== 'perfunduar' && cur !== 'derguar') {
+      moveKbOrderTo(order.id, 'perfunduar');
+    }
   }
   // Re-render the current view.
   if (_wfState.view === 'order') wfRenderOrderDetail();
@@ -13631,7 +14621,11 @@ async function wfApplyStageChange(blockIdx, stage, subKey, nextStatus) {
 async function wfOpenBlock(blockIdx) {
   const order = _wfState.order;
   if (!order || !order.blocks || !order.blocks[blockIdx]) return;
-  _wfState.blockId = blockIdx;
+  _wfState.blockId    = blockIdx;
+  _wfState.openedFrom = 'order';
+  // Clear deptContext — coming from View 2 means no specific dept queue;
+  // the action bar should fall back to "first pending stage" logic.
+  _wfState.deptContext = null;
   const block = order.blocks[blockIdx];
   wfEnsureBlockWorkflow(block);
   // Header
@@ -13649,18 +14643,57 @@ function wfRenderBlockActionBar() {
   const block = order && order.blocks[_wfState.blockId];
   if (!block) return;
   const bar = document.getElementById('wf-block-action-bar');
-  // Quick-action = the first non-done applicable stage. One tap marks it done.
-  const next = WF_STAGES.find(s => {
-    const st = wfStageStatus(block, s);
-    return st === 'pending';
-  });
-  if (!next) {
+
+  // Read-only viewing path (admin came from order Kanban): no Mbarova
+  // button. The user can still SEE the document and existing drawings,
+  // just not change anything.
+  if (_wfIsReadOnly()) {
+    bar.innerHTML = `<span class="wf-draw-status">Pamje vetëm-leximi</span>`;
+    return;
+  }
+
+  // Prefer the dept the user came from (e.g. they're a CNC operator, they
+  // opened the block from the CNC tab, so the action bar advances CNC even
+  // if Sharra+Bordim are also done). Fallback: first pending stage.
+  let targetStage = _wfState.deptContext;
+  if (!targetStage || wfStageStatus(block, targetStage) !== 'pending') {
+    targetStage = WF_STAGES.find(s => wfStageStatus(block, s) === 'pending');
+  }
+  if (!targetStage) {
     bar.innerHTML = `<span class="wf-draw-status">✓ Të gjitha proceset janë mbaruar</span>`;
     return;
   }
-  const label = WF_STAGE_LABELS[next];
+
+  // Paint dept: advance just the CURRENT sub-stage so each coat is its own
+  // discrete acknowledgement (Zmerilim → Pastë 1 → Pastë 2 → Lyerje finale).
+  if (targetStage === 'paint') {
+    const subs = block.workflow.paint.substages;
+    const next = WF_PAINT_SUBSTAGES.find(k => subs[k].status !== 'done');
+    if (!next) {
+      bar.innerHTML = `<span class="wf-draw-status">✓ Lyerja ka mbaruar</span>`;
+      return;
+    }
+    const subLabel = WF_PAINT_SUBLABELS[next];
+    bar.innerHTML = `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-weight:700"
+      onclick="wfAdvancePaintSubAndBack('${next}')">✓ ${escHtml(subLabel)} — Mbarova</button>`;
+    return;
+  }
+
+  const label = WF_STAGE_LABELS[targetStage];
   bar.innerHTML = `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-weight:700"
-    onclick="wfStageAction(${_wfState.blockId},'${next}')">✓ ${label.icon} ${escHtml(label.sq)} — Mbarov</button>`;
+    onclick="wfAdvanceStageAndBack('${targetStage}')">✓ ${label.icon} ${escHtml(label.sq)} — Mbarova</button>`;
+}
+
+// "Mbarova" button on the workspace = mark done + auto-return to the view
+// the operator came from (dept landing OR View 2 if they drilled in from
+// the order overview), so they go straight to their next item.
+async function wfAdvanceStageAndBack(stage) {
+  await wfApplyStageChange(_wfState.blockId, stage, null, 'done');
+  wfBackFromBlock();
+}
+async function wfAdvancePaintSubAndBack(subKey) {
+  await wfApplyStageChange(_wfState.blockId, 'paint', subKey, 'done');
+  wfBackFromBlock();
 }
 
 function wfRenderBlockSide() {
@@ -13831,6 +14864,16 @@ function wfDrawAttachToPage(wrap, viewport, pageIndex) {
   const page = { wrap, overlay, ctx, viewport, strokes, current: null, dirty: false, pageIndex };
   _wfDraw.pages[pageIndex] = page;
   wfDrawRedraw(pageIndex);
+
+  // Read-only viewing (admin from order Kanban): render existing strokes
+  // so the admin can SEE what operators drew, but hide the toolbar and
+  // skip pointer-event wiring entirely — no editing, no save.
+  if (_wfIsReadOnly()) {
+    const tb = document.getElementById('wf-draw-toolbar');
+    if (tb) tb.style.display = 'none';
+    overlay.style.pointerEvents = 'none';
+    return;
+  }
 
   // Always reveal the toolbar and reflect the current tool selection.
   const tb = document.getElementById('wf-draw-toolbar');
@@ -14595,10 +15638,16 @@ function _pdfImportParseCell(cw) {
     if (width != null) break;
   }
 
+  // Extract all `*xxx*` codes from the cell text. Codes are normalised:
+  //   *r15f0001*      → r15f0001
+  //   *r15f0001.pgm*  → r15f0001   (strip `.pgm` filename suffix)
+  // This is critical for PDFs where some pieces only embed the filename
+  // form of the code (no bare wrapper) — we'd previously throw those away
+  // and end up with empty front/back fields on the saw label.
   const codes = Array.from(new Set(
     (fullText.match(/\*([A-Za-z0-9_.\-]+)\*/g) || [])
-      .map(s => s.slice(1, -1))
-      .filter(s => !s.endsWith('.pgm'))
+      .map(s => s.slice(1, -1).replace(/\.pgm$/i, ''))
+      .filter(s => s.length > 0)
   ));
 
   // Split codes into front vs back. Each PDF label has up to two *codes*:

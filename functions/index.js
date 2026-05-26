@@ -845,7 +845,17 @@ function greedyPack(types, panelL, panelW, kerf, trimEdge, trimSub, cutDir, log)
     // For >8 live types, use fastMode (skip allStripWidthCombos enumeration).
     // packXGreedy + packYGreedy + addSharedDimensionCandidates produce ~5-10
     // good candidates per call, plenty for greedy to pick from.
-    const opts = { fastMode: liveTypes.length > 8 };
+    //
+    // multiOffcut=true enables the multi-sub-strip offcut variants from
+    // buildYCandidate.  Previously greedy was restricted to single-sub-strip
+    // offcuts (the historical concern was that multi-offcut picks could be
+    // "globally bad" per the buildYCandidate comment), but on grain-locked
+    // PDFs with many same-h pieces that's exactly the pattern that closes
+    // the panel-count gap — packing 4 narrow grain pieces side-by-side in a
+    // single primary row's leftover is denser than reserving each in its
+    // own strip.  generateCandidates' SAME-HEIGHT pass plus the per-candidate
+    // dedup signature already keep the candidate set bounded.
+    const opts = { fastMode: liveTypes.length > 8, multiOffcut: true };
     const cs = generateCandidates(liveTypes, panelL, panelW, kerf, trimEdge, trimSub, cutDir, opts);
     if (cs.length === 0) break;
 
