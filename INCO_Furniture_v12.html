@@ -498,6 +498,16 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
    fit per row (4–5 across on a typical 1500px monitor). */
 #pg-cfg .page-wrap { max-width: none; }
 
+/* Order edit page: full-bleed (with side padding only) so the material
+   block header has all the room it needs.  Materials carry a packed
+   header — sub-number badge, material name, MDF/MEL/… colour chip,
+   "Grupuar" link badge, "Printo Etiketat" toggle, "Printo Dokumentin",
+   "Modifiko Dokumentin", "Ndrysho formatin e pllakës", "Fshi seksionin",
+   plus the chevron — and ANY narrower cap forces wrapping on smaller
+   monitors.  Keeping the inner content visually centered isn't critical
+   here; the value-add is "everything on one line". */
+#pg-porosi-new .page-wrap { max-width: none; }
+
 /* ─── KONFIGURIM — tabs strip (Melamine / Betoforme / MDF / Fiber / Tenie) */
 .cfg-tabs {
   display: flex;
@@ -1045,7 +1055,15 @@ select {
   font-size: 14px;
   font-weight: 700;
   letter-spacing: -.1px;
+  /* Keep every inline child on a single line — the sub-number badge "#115-1"
+     was breaking on the hyphen because the badge had no white-space rule
+     and the material name was wrapping when there were many siblings.
+     `flex-wrap:nowrap` prevents the row from breaking; individual children
+     can still ellipsis if pinched. */
+  flex-wrap: nowrap;
+  min-width: 0;
 }
+.mat-block-title > * { white-space: nowrap; }
 .mat-badge {
   font-size: 9px;
   padding: 2px 7px;
@@ -1056,6 +1074,13 @@ select {
 }
 
 .mat-block-body { padding: 14px 18px 18px; background: #fff; }
+/* Collapse/expand: hide the body on the outer .collapsed class.  toggleBlock
+   ALSO re-renders the block (so the body is removed from the DOM on
+   collapse), but this CSS keeps the click feedback responsive in case the
+   re-render runs slightly later (and lets the toggle work for any path
+   that only flips the class without re-rendering). */
+.mat-block.collapsed .mat-block-body { display: none; }
+.mat-block.collapsed .chevron { transform: rotate(0deg) !important; }
 
 /* Color themes per block — subtler, white-dominant */
 .mat-block.mel { border-left: 3px solid #b8860b; }
@@ -3502,6 +3527,96 @@ async function ensureLibsLoaded() {
 
 // ═══════════════════════════════════════════════════════════════
 // SHELL — PAGE NAVIGATION
+// ── LAST VIEW PERSISTENCE ─────────────────────────────────────────────────
+// Save the active page (and a small amount of context) to sessionStorage so
+// a Ctrl+R / F5 / accidental browser refresh lands the operator back where
+// they were instead of always returning to pg-home.
+//
+// sessionStorage is tab-scoped: closing the tab still resets to the home
+// page on the next visit (matches the existing "fresh tab" behavior of the
+// `_sessionMarkerPresent` auth flow).  localStorage would persist across
+// tab close, which the operator hasn't asked for.
+//
+// We persist:
+//   - which page is active (pg-home / pg-porosite / pg-klient / pg-cfg /
+//     pg-kanban / pg-porosi-new)
+//   - the editing order id when on pg-porosi-new
+//   - the workflow dept tab + drill-in state (view + orderId + blockId +
+//     deptContext + groupedSiblingIdxs) when on pg-kanban
+const _LAST_VIEW_KEY = 'inco-last-view';
+function _saveLastView() {
+  try {
+    const page = document.querySelector('.page.active')?.id || 'pg-home';
+    const state = { page, ts: Date.now() };
+    if (page === 'pg-porosi-new') {
+      // Only persist when an actual saved order is open (editingOrderId is
+      // set after save).  A brand-new unsaved form is intentionally not
+      // restored — the operator would lose unsaved input on reload anyway.
+      if (window._editingOrderId) state.editingOrderId = window._editingOrderId;
+    } else if (page === 'pg-kanban' && window._wfDept) {
+      state.deptTab = window._wfDept.currentTab || 'saw';
+      if (window._wfState) {
+        state.wfView    = window._wfState.view || null;
+        state.orderId   = window._wfState.orderId || null;
+        state.blockId   = window._wfState.blockId != null ? window._wfState.blockId : null;
+        state.deptCtx   = window._wfState.deptContext || null;
+        state.sibIdxs   = Array.isArray(window._wfState.groupedSiblingIdxs)
+                          ? window._wfState.groupedSiblingIdxs.slice() : null;
+        state.openedFrom = window._wfState.openedFrom || null;
+      }
+    }
+    sessionStorage.setItem(_LAST_VIEW_KEY, JSON.stringify(state));
+  } catch (e) { /* private modes / quota errors: silent no-op */ }
+}
+
+async function _restoreLastView() {
+  let state;
+  try {
+    const raw = sessionStorage.getItem(_LAST_VIEW_KEY);
+    if (!raw) return false;
+    state = JSON.parse(raw);
+  } catch (e) { return false; }
+  if (!state || !state.page) return false;
+  try {
+    // Order edit page: needs openOrder to repopulate blocks/header/etc.
+    if (state.page === 'pg-porosi-new' && state.editingOrderId) {
+      const exists = (typeof loadOrders === 'function')
+        && loadOrders().some(o => o.id === state.editingOrderId);
+      if (!exists) return false;   // deleted while we were away
+      await openOrder(state.editingOrderId);
+      return true;
+    }
+    // Workflow page: land on the dept tab and optionally drill back into
+    // the order detail or block workspace the operator had open.
+    if (state.page === 'pg-kanban') {
+      goPage('pg-kanban');
+      if (state.deptTab && typeof renderDepartments === 'function') {
+        await renderDepartments(state.deptTab, false);
+      }
+      if (state.wfView === 'order' && state.orderId && typeof wfOpenOrder === 'function') {
+        await wfOpenOrder(state.orderId);
+      } else if (state.wfView === 'block' && state.orderId && state.blockId != null) {
+        if (state.deptCtx && typeof wfOpenBlockFromDept === 'function') {
+          await wfOpenBlockFromDept(state.orderId, state.blockId, state.deptCtx, state.sibIdxs || undefined);
+        } else if (typeof wfOpenOrder === 'function' && typeof wfOpenBlock === 'function') {
+          await wfOpenOrder(state.orderId);
+          await wfOpenBlock(state.blockId);
+        }
+      }
+      return true;
+    }
+    // Simple list/setting pages — goPage handles routing + sub-rendering.
+    if (state.page === 'pg-porosite' || state.page === 'pg-klient' || state.page === 'pg-cfg') {
+      goPage(state.page);
+      return true;
+    }
+    return false;
+  } catch (e) {
+    console.warn('[INCO] restoreLastView failed:', e);
+    return false;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 function goPage(id) {
   // Unsaved-changes guard: when the user navigates away from the order form
@@ -3551,6 +3666,8 @@ function goPage(id) {
   if(cur === 'pg-cfg' && id !== 'pg-cfg') {
     discardKonfigDraft();
   }
+  // Snapshot the new view for sessionStorage so a refresh restores it.
+  if (typeof _saveLastView === 'function') _saveLastView();
 }
 
 function shellToast(msg, type='ok') {
@@ -3626,7 +3743,11 @@ const KB_COL_INFO = {
   derguar:    { label:'Dorëzuar',    color:'#15803d', bg:'#e9f7ef', border:'#6b7280' },
 };
 
-// Read kanban column for an order. Defaults to 'pritje' if no kanban doc yet.
+// Read kanban column for an order. Defaults to 'pritje' if no kanban doc yet
+// (matches the user's mental model: a brand-new order is "waiting to be
+// started" until the operator either drags it forward or marks its first
+// stage done).  The workflow tabs (Sharra/Bordim/CNC/Lyerje) still show
+// 'pritje' orders — see the filter in _wfLoadActiveOrders.
 function getOrderKbCol(orderId) {
   const s = _KANBAN_CACHE[String(orderId)];
   return (s && s.col) ? s.col : 'pritje';
@@ -3660,10 +3781,14 @@ function structuralFingerprint(order) {
     cfg: {
       lung:  b.cfg?.lung,  larg:  b.cfg?.larg,  spes:  b.cfg?.spes,
       kerf:  b.cfg?.kerf,  trimX: b.cfg?.trimX, trimY: b.cfg?.trimY,
+      dop:   b.cfg?.dopjimStripMm,
     },
     dimMode: b.dimMode || 'Fikse',
     dimAdd:  b.dimAdd  || 0,
     cutDir:  b.cutDir  || 'auto',
+    // printLabels affects WinCut output, so toggling it is a real edit that
+    // should bump a 'perfunduar' order back to 'procesim'.
+    printLabels: b.printLabels !== false,
     rows: (b.rows || []).map(r => ({
       l: r.l, g: r.g, s: r.s,
       ag: r.ag || 0, as_: r.as_ || 0,
@@ -3673,6 +3798,10 @@ function structuralFingerprint(order) {
       fromDopjim: !!r.fromDopjim,
       parent: r.parentRowId == null ? null : r.parentRowId,
       side:   r.side || null,
+      // Ruaj Ujerat + Grupi affect the optimizer output (grain locking,
+      // align-group), so changing them counts as structural too.
+      grain:  !!r.grainLock,
+      gcolor: r.groupColor || null,
       ds_g: (r.doubledSides && typeof r.doubledSides.gjate    === 'number') ? r.doubledSides.gjate
             : (r.doubledSides && r.doubledSides.gjate    ? 1 : 0),
       ds_s: (r.doubledSides && typeof r.doubledSides.shkurter === 'number') ? r.doubledSides.shkurter
@@ -3695,11 +3824,17 @@ function fullFingerprint(order) {
     cfg: {
       lung:  b.cfg?.lung,  larg:  b.cfg?.larg,  spes:  b.cfg?.spes,
       kerf:  b.cfg?.kerf,  trimX: b.cfg?.trimX, trimY: b.cfg?.trimY,
+      // dopjimStripMm — settable from the "Gjerësia e shiritit" input.
+      dop:   b.cfg?.dopjimStripMm,
     },
     dimMode: b.dimMode || 'Fikse',
     dimAdd:  b.dimAdd  || 0,
     cutDir:  b.cutDir  || 'auto',
     kodiBojes: b.kodiBojes || '',
+    // "Printo Etiketat" toggle in the block header — a setting change here
+    // must count as an edit so the operator can't accidentally lose the
+    // "labels off" choice by navigating away.
+    printLabels: b.printLabels !== false,
     rows: (b.rows || []).map(r => ({
       l: r.l, g: r.g, s: r.s,
       ag: r.ag || 0, as_: r.as_ || 0,
@@ -3710,6 +3845,11 @@ function fullFingerprint(order) {
       parent: r.parentRowId == null ? null : r.parentRowId,
       side:   r.side || null,
       koment: r.koment || '',
+      // Ruaj Ujerat checkbox + Grupi color picker — both directly user-set
+      // per row, both were missing from the original fingerprint so toggling
+      // them slipped past the unsaved-changes guard.
+      grain:  !!r.grainLock,
+      gcolor: r.groupColor || null,
       // Capture layer counts as integers so adding a 2nd layer (gjate 1→2)
       // is detected as a change. Previous boolean coercion would've missed it.
       ds_g: (r.doubledSides && typeof r.doubledSides.gjate    === 'number') ? r.doubledSides.gjate
@@ -3964,7 +4104,11 @@ async function delKlient(id, emri) {
 
 function renderKlientet() {
   const q = (document.getElementById('k-srch')?.value || '').toLowerCase();
-  const klientet = loadKlientet().filter(k => !q || k.emri.toLowerCase().includes(q));
+  // Alphabetical by name (locale-aware so Albanian-specific characters like
+  // ç/ë sort where the operator expects them, case-insensitive).
+  const klientet = loadKlientet()
+    .filter(k => !q || k.emri.toLowerCase().includes(q))
+    .sort((a, b) => (a.emri || '').localeCompare((b.emri || ''), 'sq', { sensitivity: 'base' }));
   const orders = loadOrders();
   document.getElementById('k-count').textContent = `${klientet.length} klientë`;
   const el = document.getElementById('folder-grid');
@@ -3974,8 +4118,12 @@ function renderKlientet() {
   }
   el.innerHTML = klientet.map(k => {
     const cnt = orders.filter(o => o.klient_id === k.id).length;
+    // Top row used to show the last 4 chars of the customer's internal id
+    // (e.g. "#7_18") — that's a Firestore-doc fragment with no meaning to the
+    // operator, so it's dropped here.  Keep just the folder icon for the
+    // visual anchor; the actual customer name is the title below.
     return `<div class="folder">
-      <div class="ftop"><span class="ficon">📁</span><span class="fid">#${escHtml(k.id.toString().slice(-4))}</span></div>
+      <div class="ftop"><span class="ficon">📁</span></div>
       <div class="fbody">
         <div class="fname">${escHtml(k.emri)}</div>
         <div class="fmeta"><span>${escHtml(k.telefoni||'—')}</span><span>${escHtml(k.email||'—')}</span></div>
@@ -4598,6 +4746,15 @@ function renderOrdersTable(list) {
     tb.innerHTML = `<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--muted)">Asnjë porosi</td></tr>`;
     return;
   }
+  // Newest first — primary sort by `data` (ISO date string sorts
+  // lexicographically), tiebreaker by `id` desc so two orders saved on the
+  // same day still show the most-recently-created at the top.
+  list = list.slice().sort((a, b) => {
+    const da = String(a.data || '');
+    const db = String(b.data || '');
+    if (da !== db) return db.localeCompare(da);
+    return (b.id || 0) - (a.id || 0);
+  });
   // Build klient lookup once for live-name resolution.
   const klientById = {};
   loadKlientet().forEach(k => { klientById[k.id] = k; });
@@ -4702,6 +4859,9 @@ async function openOrder(id) {
     delete b.panelId;  // legacy ref — no longer used
 
     syncBlockFromMaterialFormat(b);
+    // syncBlockFromMaterialFormat resets b.name to the base "<material> Nmm"
+    // form; the post-loop pass below restores " (2)" / " (3)" suffixes for
+    // duplicate material+format pairs so WinCut filenames stay unique.
 
     if(b.tenieId == null) {
       const tenies = getAllTenies();
@@ -4740,6 +4900,45 @@ async function openOrder(id) {
       if(r.side === undefined)        r.side        = null;
     });
   });
+  // Re-uniquify block names after migration.  syncBlockFromMaterialFormat
+  // (called per-block above) overwrites b.name to the base form, so any
+  // " (2)" / " (3)" suffix the saved order persisted is gone by here.
+  // Re-apply suffixes deterministically based on iteration order so two
+  // blocks with the same material+format get distinct names.  Order is
+  // stable (saved blocks load in array order), so the same suffixes are
+  // re-derived on every load.
+  {
+    const _seen = new Set();
+    for (const b of blocks) {
+      if (!_seen.has(b.name)) { _seen.add(b.name); continue; }
+      const base = (b.name || '').replace(/ \(\d+\)$/, '');
+      for (let n = 2; n < 1000; n++) {
+        const candidate = `${base} (${n})`;
+        if (!_seen.has(candidate)) { b.name = candidate; _seen.add(candidate); break; }
+      }
+    }
+  }
+  // Re-share the panels reference across each sibling group.  On save we
+  // deep-clone each block's panels (Firestore can't store reference
+  // identity), but at runtime sibling blocks should point to the SAME
+  // panels array so a re-optimize updates every section in lock-step.
+  // For each group, the FIRST sibling's panels become the canonical copy
+  // and the rest get re-pointed.  This also fixes a save/reload edge case
+  // where one sibling had no panels (e.g. PDF-imported into block 1 with
+  // sibling block 2 added but never optimized) — block 2 now shows the
+  // shared panels too.
+  {
+    const _groupPanels = new Map();   // groupKey → canonical panels array
+    for (const b of blocks) {
+      const key = _blockGroupKey(b);
+      if (_groupPanels.has(key)) {
+        // Sibling: adopt the canonical panels array by reference.
+        b.panels = _groupPanels.get(key);
+      } else if (Array.isArray(b.panels) && b.panels.length > 0) {
+        _groupPanels.set(key, b.panels);
+      }
+    }
+  }
   updateAddButtons();
   renderBlocks();
   // Populate header fields (readonly). Use the *current* klient name (handles
@@ -4754,6 +4953,11 @@ async function openOrder(id) {
   document.getElementById('nr-fatura').value = displayFatura;
   document.getElementById('data').value = order.data || '';
   document.getElementById('order-breadcrumb').textContent = `${liveKlientName} — #${displayFatura}`;
+  // renderBlocks (called above) reads the fatura from the input to build the
+  // per-block sub-number badge "#<fatura>-N", but the input was still empty
+  // at that point — every badge showed "#—-N".  Refresh now that the real
+  // fatura is in place so the badges flip to "#115-1" / "#115-2" / …
+  if (typeof _refreshBlockSubNumbers === 'function') _refreshBlockSubNumbers();
   // Store editing id so save overwrites instead of creating new
   window._editingOrderId = id;
   // Track the klient_id of the order being edited. saveOrderToStorage uses
@@ -4835,7 +5039,11 @@ async function openOrder(id) {
 function openNewOrderModal() {
   const sel = document.getElementById('nom-klient');
   sel.innerHTML = '<option value="">— Zgjidh klientin —</option>';
-  loadKlientet().forEach(k => sel.insertAdjacentHTML('beforeend', `<option value="${escHtml(k.id)}">${escHtml(k.emri)}</option>`));
+  // Alphabetical so the operator scrolls a predictable list — matches the
+  // sort used in the customer section (renderKlientet).
+  const sortedKlients = loadKlientet().slice().sort((a, b) =>
+    (a.emri || '').localeCompare((b.emri || ''), 'sq', { sensitivity: 'base' }));
+  sortedKlients.forEach(k => sel.insertAdjacentHTML('beforeend', `<option value="${escHtml(k.id)}">${escHtml(k.emri)}</option>`));
   sel.style.borderColor = '';
   document.getElementById('nom-klient-err').style.display = 'none';
   document.getElementById('new-order-modal').classList.add('open');
@@ -5087,11 +5295,22 @@ async function saveOrderToStorage() {
       if(faturaEl) { faturaEl.value = String(perCustomerFatura); faturaEl.placeholder = '—'; }
       const breadcrumbEl = document.getElementById('order-breadcrumb');
       if(breadcrumbEl) breadcrumbEl.textContent = `${klientName} — #${perCustomerFatura}`;
+      // The per-block sub-number badges read the fatura from the input above;
+      // a new order's badges showed "#—-N" before save and need a refresh now
+      // that the real fatura is in place.
+      if (typeof _refreshBlockSubNumbers === 'function') _refreshBlockSubNumbers();
       // Now that the order is saved, capture the structural and full fingerprints
       // and reveal the in-detail delete button.
       window._editingOrderFingerprint = structuralFingerprint(fullOrder);
       window._orderBaselineFingerprint = fullFingerprint(fullOrder);
       applyDetailToolbarVisibility();
+      // Invalidate the workflow tab's 60 s cache so the just-created order
+      // surfaces immediately in Sharra/Bordim/CNC/Lyerje on next navigation.
+      // The new order will sit in the 'pritje' column on the kanban board
+      // (which is the right place for an unprocessed order), but the
+      // workflow tabs' filter is set up to INCLUDE 'pritje' orders too —
+      // the saw operator needs visibility of incoming work.
+      if (window._wfDept) { window._wfDept.orders = null; window._wfDept.loadedAt = 0; }
       shellToast(`Porosia #${perCustomerFatura} u ruajt ✓`,'ok');
     }
     return ok;
@@ -5263,48 +5482,50 @@ if (!_sessionMarkerPresent) {
 }
 
 // ── INACTIVITY AUTO-LOGOUT ────────────────────────────────────────────────
-// Track user activity (mouse, keyboard, scroll, touch).  Reset the timer on
-// any activity event.  When the timer fires (10 min of no activity), force a
-// sign-out and reload to the login overlay.
+// TEMPORARILY DISABLED per operator request — the 10-minute idle kick-out
+// was annoying users who had to re-authenticate too often during normal
+// shift work.  The function declarations and timer hooks stay in place so
+// onAuthStateChanged + the visibilitychange listener still call them
+// without TypeErrors, but `_inactivityLogout` is now a no-op and the
+// scheduled setTimeout has been removed from `_resetInactivityTimer`.
 //
-// Browsers throttle background tabs heavily, so timers may not fire on
-// schedule when the tab is hidden.  We check the elapsed wall-clock time on
-// `visibilitychange` to catch up — if the page was hidden for >10 min, we
-// log out immediately on return rather than waiting for the throttled timer.
-const INACTIVITY_MS = 10 * 60 * 1000;   // 10 minutes
+// TO RE-ENABLE: drop the `return;` at the top of `_inactivityLogout` and
+// restore the `setTimeout(_inactivityLogout, INACTIVITY_MS)` call inside
+// `_resetInactivityTimer`.  The constants and event wiring below are
+// unchanged so the behavior comes back with two one-line edits.
+const INACTIVITY_MS = 10 * 60 * 1000;   // 10 minutes (used only if re-enabled)
 let _lastActivityAt = Date.now();
 let _inactivityTimerId = null;
 
 function _resetInactivityTimer() {
   _lastActivityAt = Date.now();
   if (_inactivityTimerId) clearTimeout(_inactivityTimerId);
-  _inactivityTimerId = setTimeout(_inactivityLogout, INACTIVITY_MS);
+  // setTimeout(_inactivityLogout, INACTIVITY_MS);  // DISABLED — see comment above.
 }
 
 async function _inactivityLogout() {
-  // Guard: only log out if a user is currently signed in.  An expired timer
-  // on the login screen shouldn't trigger anything.
+  // DISABLED — return early so no auto sign-out happens.  Re-enable by
+  // removing the `return;` below and the setTimeout above.
+  return;
+  // eslint-disable-next-line no-unreachable
   if (!auth.currentUser) return;
   try {
     await auth.signOut();
   } catch (err) {
     console.warn('[INCO auth] Inactivity sign-out failed:', err);
   }
-  // Hard reload so any in-flight UI state is reset to the locked screen.
-  // onAuthStateChanged would show the overlay too, but a reload is the
-  // bulletproof way to guarantee no stale state from the active session.
   location.reload();
 }
 
-// Wire up activity events.  `passive: true` keeps scroll smooth, capture
-// phase ensures we see events even if a handler stops propagation.
+// Activity wiring kept so that, when the feature is re-enabled, no extra
+// setup step is needed.  With the timer disabled, these events just bump
+// `_lastActivityAt` (harmless) and pay a negligible CPU cost.
 for (const ev of ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel']) {
   window.addEventListener(ev, _resetInactivityTimer, { passive: true, capture: true });
 }
 
-// Browser-tab visibility recovery.  After unhide, check how long we were
-// hidden; if past the threshold, log out at once.  Otherwise keep the timer
-// running normally.
+// visibilitychange handler stays too — _inactivityLogout is a no-op so
+// returning from a long-hidden tab no longer kicks the user out.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     if (Date.now() - _lastActivityAt > INACTIVITY_MS) {
@@ -5315,9 +5536,6 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// Kick off the timer once the page loads.  onAuthStateChanged (further down)
-// also calls _resetInactivityTimer when a user signs in so the clock starts
-// fresh on every fresh login.
 _resetInactivityTimer();
 
 // In-memory cache populated at boot from Firestore. The whole app reads from
@@ -5505,6 +5723,13 @@ async function bootApp() {
       bootLoadOrders(),
       bootLoadKanban(),
     ]);
+
+    // Restore the last view BEFORE hiding the splash so the operator never
+    // sees pg-home flash on the way to their saved page.  openOrder /
+    // renderDepartments are safe to call here — they read from caches the
+    // step above just populated.  Failure to restore (deleted order,
+    // unparseable session state) leaves the default pg-home in place.
+    try { await _restoreLastView(); } catch (e) { console.warn('[INCO] restore failed:', e); }
 
     // Hide splash
     splash.classList.add('hidden');
@@ -6599,16 +6824,48 @@ function syncBlockFromMaterialFormat(b) {
   }
 }
 
+// Walk every block header on the order edit page and refresh the sub-number
+// badge "#<fatura>-<1-based-index>".  Called from addBlock / removeBlock /
+// saveOrderToStorage so the badges stay in sync after the operator inserts
+// a sibling in the middle, removes a section, or saves a new order (which
+// assigns a real fatura where the badge had a placeholder).
+function _refreshBlockSubNumbers() {
+  const fatura = (document.getElementById('nr-fatura')?.value || '').trim();
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    const el = document.querySelector('#block-' + b.id + ' .block-subno');
+    if (el) {
+      el.textContent = fatura ? ('#' + fatura + '-' + (i + 1)) : ('#—-' + (i + 1));
+    }
+  }
+}
+
+// Build a unique block name from a base name (`${material} ${thickness}mm`),
+// auto-appending " (2)", " (3)", … when a block with that exact name already
+// exists in the order.  Duplicate materials are allowed (the operator may want
+// to track the same panel type in two parallel sections — e.g. one stack for
+// CNC, one for plain cuts), but the WinCut .txt filenames are derived from
+// `b.name`, so duplicates would collide on disk without a suffix.  Workflow
+// cards and totals strips also read the name, so a unique label keeps the
+// UI unambiguous.
+function _uniqueBlockName(baseName) {
+  const taken = new Set(blocks.map(b => b.name));
+  if (!taken.has(baseName)) return baseName;
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${baseName} (${n})`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${baseName} (${Date.now()})`;  // pathological fallback
+}
+
 function addBlock(materialId, formatId) {
   const material = getMaterialById(materialId);
   const format   = getFormatById(formatId);
   if(!material || !format) { showMsg('Materiali ose formati nuk u gjet!'); return; }
-  // Prevent duplicate sections — same material AND same format (which already encodes
-  // dimensions + thickness) cannot appear twice in the same order.
-  if(blocks.some(b => b.materialId === materialId && b.formatId === formatId)) {
-    shellToast('Kjo pllakë ekziston tashmë në porosi','err');
-    return;
-  }
+  // Duplicates allowed: the operator may need to track the same material+format
+  // twice (e.g. two batches of the same panel for different downstream stages).
+  // _uniqueBlockName appends "(2)", "(3)", … so the WinCut filenames and
+  // workflow cards stay distinguishable.
   const id = blockIdCtr++;
   const allTenies = getAllTenies();
   const defaultTenieId = (getMaterialBehavior(material).hasTenie && allTenies[0]) ? allTenies[0].id : null;
@@ -6617,7 +6874,7 @@ function addBlock(materialId, formatId) {
     materialId: material.id,
     formatId:   format.id,
     type:  deriveBlockTypeFromMaterial(material),
-    name:  `${material.description} ${format.thickness}mm`,
+    name:  _uniqueBlockName(`${material.description} ${format.thickness}mm`),
     collapsed: false,
     cfg: { lung: format.lung, larg: format.larg, spes: format.thickness, kerf:4.4, trimX:10, trimY:10, dopjimStripMm: 100 },
     rows: [],
@@ -6630,7 +6887,29 @@ function addBlock(materialId, formatId) {
     printLabels: true,   // per-block WinCut-label toggle (see openOrder backfill)
   };
   block.rows.push(makeRow(block));
-  blocks.push(block);
+  // Group-adjacent insertion: if any existing block shares this material+
+  // format, insert the new block right after the last such sibling so the
+  // group renders as a contiguous run instead of scattering pieces of the
+  // same material across the order.  Otherwise append at the end.
+  const lastSibIdx = (() => {
+    let idx = -1;
+    for (let i = 0; i < blocks.length; i++) {
+      if (_blockGroupKey(blocks[i]) === _blockGroupKey(block)) idx = i;
+    }
+    return idx;
+  })();
+  let referenceEl = null;
+  if (lastSibIdx >= 0) {
+    blocks.splice(lastSibIdx + 1, 0, block);
+    // Sibling exists: take its panels by reference so the new block sees
+    // the same shared optimization the rest of the group already has.
+    if (Array.isArray(blocks[lastSibIdx].panels)) {
+      block.panels = blocks[lastSibIdx].panels;
+    }
+    referenceEl = document.getElementById(`block-${blocks[lastSibIdx].id}`);
+  } else {
+    blocks.push(block);
+  }
   updateAddButtons();
   const container = document.getElementById('blocks-container');
   document.getElementById('empty-state').style.display = 'none';
@@ -6638,8 +6917,20 @@ function addBlock(materialId, formatId) {
   block.rows.forEach((r,i) => r._idx = i+1);
   const div = document.createElement('div');
   div.innerHTML = renderBlock(block);
-  while(div.firstChild) container.appendChild(div.firstChild);
+  // Insert after the last sibling's DOM node when grouping, else append.
+  while (div.firstChild) {
+    if (referenceEl && referenceEl.nextSibling) {
+      container.insertBefore(div.firstChild, referenceEl.nextSibling);
+    } else if (referenceEl) {
+      container.appendChild(div.firstChild);
+    } else {
+      container.appendChild(div.firstChild);
+    }
+  }
   updateGrandTotal();
+  // Sibling-adjacent insertion can shift the indices of any blocks AFTER the
+  // new one, so refresh every sub-number badge to keep them sequential.
+  _refreshBlockSubNumbers();
   showMsg(`Seksion ${block.name} u shtua`);
   setTimeout(() => {
     const el = document.getElementById(`block-${id}`);
@@ -6870,14 +7161,18 @@ function pickFormat(formatId) {
 function changeBlockFormat(bid, materialId, formatId) {
   const b = blocks.find(x=>x.id===bid);
   if(!b) return;
-  // Prevent duplicate sections — if another block already uses this combo, refuse.
-  if(blocks.some(x => x.id !== bid && x.materialId === materialId && x.formatId === formatId)) {
-    shellToast('Kjo pllakë ekziston tashmë në porosi','err');
-    return;
-  }
+  // Duplicates allowed: if another block already uses this material+format,
+  // the auto-suffix pass below appends " (2)", " (3)", … so the two coexist
+  // with distinguishable names (used in WinCut filenames + workflow cards).
   b.materialId = materialId;
   b.formatId   = formatId;
   syncBlockFromMaterialFormat(b);
+  // Re-uniquify name: syncBlockFromMaterialFormat just set the base name; if
+  // another block already has it, bump our suffix.  Done by temporarily
+  // removing `b` from the dedup pool so _uniqueBlockName sees the rest.
+  const savedName = b.name;
+  b.name = '';   // hide self from the taken-names set
+  b.name = _uniqueBlockName(savedName);
   // Re-validate tenie selection (compatibility doesn't depend on format anymore — every variant has both prices,
   // but in case the material no longer supports tenie, drop tenieId).
   const beh = getMaterialBehavior(getMaterialById(materialId));
@@ -6921,14 +7216,47 @@ function removeBlock(bid) {
   if(el) el.remove();
   if(blocks.length===0) document.getElementById('empty-state').style.display = 'block';
   updateGrandTotal();
+  // Removing a section shifts the indices of every block AFTER it, so
+  // refresh the sub-number badges (#fatura-1, -2, …) on the remaining ones.
+  _refreshBlockSubNumbers();
 }
 
 function toggleBlock(bid) {
   const b = blocks.find(x=>x.id===bid);
   if(!b) return;
   b.collapsed = !b.collapsed;
+  // The body is rendered CONDITIONALLY inside renderBlock — when b.collapsed
+  // was true at render time, the body HTML is empty.  Simply toggling a CSS
+  // class won't bring a never-rendered body back (and there's no .collapsed
+  // CSS rule either).  Re-render the whole block to (re)attach/detach the
+  // body and refresh the chevron's "open" indicator state.
   const el = document.getElementById(`block-${bid}`);
-  if(el) el.classList.toggle('collapsed', b.collapsed);
+  if(el) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = renderBlock(b);
+    const next = tmp.firstElementChild;
+    if (next) {
+      el.replaceWith(next);
+      // After re-render, the opt-panel inner needs to be re-mounted with the
+      // current panels state (renderBlock calls renderOptPanelInner which
+      // reads b.panels, so the panel cards are already there) but canvases
+      // are empty <canvas> elements.  Re-draw them if the block has panels.
+      if (!b.collapsed && Array.isArray(b.panels) && b.panels.length > 0) {
+        setTimeout(() => {
+          const panelL = b.cfg?.lung, panelW = b.cfg?.larg;
+          const trimX = b.cfg?.trimX, trimY = b.cfg?.trimY;
+          const colorMap = (typeof _makeColorMapFromRows === 'function')
+            ? _makeColorMapFromRows(b.rows) : new Map();
+          b.panels.forEach((p, pi) => {
+            const canvas = document.getElementById(`canvas-${b.id}-${pi}`);
+            if (canvas && Array.isArray(p.vis)) {
+              drawCanvas(canvas, panelL, panelW, p.vis, trimX, trimY, {cuts:p.cuts, colorMap});
+            }
+          });
+        }, 30);
+      }
+    }
+  }
 }
 
 function addRow(bid) {
@@ -8082,10 +8410,17 @@ function calcBlockPrice(b) {
   const paintPrice   = svc.painting;
   const frezimPrice  = svc.frezim;
 
-  // panels used = b.panels.length if optimized, else 0
+  // panels used = b.panels.length if optimized, else 0.
+  // nPanels (the COUNT) stays the same for every sibling so each section's
+  // totals strip shows the actual shared-panel count.  The COST (pPanels +
+  // pCut) is charged only to the first sibling in blocks[] iteration order
+  // so the grand total isn't double-counted across the group — the panels
+  // and cuts only physically happen once for the shared optimization.
   const nPanels  = b.panels ? b.panels.length : 0;
-  const pPanels  = nPanels * panelPrice;
-  const pCut     = nPanels * cutPrice;
+  const _sibs = (typeof _siblingBlocks === 'function') ? _siblingBlocks(b) : [b];
+  const _isPrimary = _sibs.length === 0 || _sibs[0].id === b.id;
+  const pPanels  = _isPrimary ? nPanels * panelPrice : 0;
+  const pCut     = _isPrimary ? nPanels * cutPrice   : 0;
   const hasTenieMat = blockHasTenie(b);
   const pTenie22 = hasTenieMat ? (b.totML22||0) * price22 : 0;
   const pTenie28 = hasTenieMat ? (b.totML28||0) * price28 : 0;
@@ -8337,8 +8672,23 @@ function renderBlock(b) {
     <div class="mat-block-header" onclick="toggleBlock(${b.id})">
       <div class="mat-block-title">
         <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="7" fill="currentColor" opacity="0.8"/></svg>
+        ${(function(){
+          // Sub-number badge "{fatura}-{1-based block index in order}".  Each
+          // material in an order gets a stable positional label so the
+          // operator can match a workshop ticket (dept card, PDF section
+          // bar, workflow header) back to a specific section here.
+          //   - For NEW orders the fatura input is empty until first save —
+          //     we read it from the DOM; pre-save it shows just "-N".
+          //   - The 'blocks' array is the live editor state, so re-ordering
+          //     or deleting blocks updates the suffix in place.
+          const _fatura = (document.getElementById('nr-fatura')?.value || '').trim();
+          const _subNo = (blocks.indexOf(b) + 1) || 1;
+          const _badge = _fatura ? `#${escHtml(_fatura)}-${_subNo}` : `#—-${_subNo}`;
+          return `<span class="block-subno" title="Nën-numri i materialit brenda kësaj porosie" style="display:inline-flex;align-items:center;font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:#7c2d12;background:#fef3c7;border:1px solid #fde68a;border-radius:5px;padding:2px 8px;margin-right:4px;letter-spacing:.02em;">${_badge}</span>`;
+        })()}
         ${escHtml(b.name)}
         <span class="mat-badge">${escHtml(getMaterialBehavior(getMaterialById(b.materialId)).name.toUpperCase())}</span>
+        ${_blockHasSiblings(b) ? `<span title="Ky seksion ndan optimizimin dhe skedarët WinCut me ${_siblingBlocks(b).length - 1} seksion${_siblingBlocks(b).length === 2 ? '' : 'e'} të tjerë me të njëjtin material+format" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#1a4a8c;background:#eaf2fc;border:1px solid #bfd4ee;border-radius:5px;padding:2px 7px;letter-spacing:.02em;">&#128279; Grupuar (${_siblingBlocks(b).length})</span>` : ''}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <label onclick="event.stopPropagation();" title="Aktivizuar: WinCut printon një etiketë për çdo copë. Çaktivizuar: nuk printohet asnjë etiketë për këtë material." style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#374151;background:#f8fafc;border:1px solid #d4d7df;border-radius:7px;padding:5px 9px;cursor:pointer;user-select:none;">
@@ -10730,6 +11080,42 @@ function _meAssertWincutRowsValid(rows, ctx) {
 // Callers that process multiple panels of one block share a single queue
 // so case numbers never get re-assigned across panels (each panel pops
 // from the front of the queue for each piece it places).
+// Pooled variant for sibling groups (blocks sharing material+format).
+// Concatenates entries from each sibling's rows so a piece's label info is
+// findable regardless of which section originally typed the row.  When the
+// group has one block this is functionally identical to the per-block
+// builder — both produce the same queue contents in the same order.
+function _buildImportQueueForGroup(siblingBlocks) {
+  const queue = new Map();
+  if (!Array.isArray(siblingBlocks)) return queue;
+  for (const block of siblingBlocks) {
+    if (!block || !Array.isArray(block.rows)) continue;
+    for (const r of block.rows) {
+      const l = parseFloat(r.l) || 0;
+      const g = parseFloat(r.g) || 0;
+      if (l <= 0 || g <= 0) continue;
+      const qty = parseInt(r.s) || 1;
+      const entry = {
+        code:     ((r._importCode       || '') + '').trim(),
+        desc:     ((r._importPart       || r.koment || '') + '').trim(),
+        codeBack: ((r._importCodeBack   || '') + '').trim(),
+        caseNum:  ((r._importCaseNumber || '') + '').trim(),
+        job:      ((r._importJob        || block._importJob || '') + '').trim(),
+      };
+      const k1 = Math.round(l) + 'x' + Math.round(g);
+      const k2 = Math.round(g) + 'x' + Math.round(l);
+      let arr = queue.get(k1) || queue.get(k2);
+      if (!arr) {
+        arr = [];
+        queue.set(k1, arr);
+        if (k1 !== k2) queue.set(k2, arr);
+      }
+      for (let i = 0; i < qty; i++) arr.push(entry);
+    }
+  }
+  return queue;
+}
+
 function _buildImportQueueForBlock(block) {
   const queue = new Map();
   if (!block || !Array.isArray(block.rows)) return queue;
@@ -10785,17 +11171,30 @@ function _stripLabelRefsIfDisabled(content, block) {
 }
 
 // Toggle handler bound to the per-block "Printo Etiketat" checkbox in the
-// block header.  Just flips `b.printLabels`; the strip helper above reads
-// the field at download time.  Re-rendering the block header is unnecessary
-// since the checkbox already reflects the new state via `this.checked`.
+// block header.  Flips `b.printLabels` AND mirrors the flag onto every
+// sibling sharing the same material+format, because the WinCut .txt files
+// are also shared at the group level — having one sibling want labels on
+// and another off doesn't translate to anything WinCut can act on.  The
+// other sibling checkboxes are updated DOM-side so they visually match.
 function setBlockPrintLabels(bid, on) {
   const b = blocks.find(x => x.id === bid);
   if (!b) return;
-  b.printLabels = !!on;
-  // Toast keeps the operator sure the click registered — no other UI changes.
-  shellToast(b.printLabels
-    ? `Etiketat e ${b.name} do të printohen ✓`
-    : `Etiketat e ${b.name} u çaktivizuan`);
+  const val = !!on;
+  const siblings = _siblingBlocks(b);
+  for (const sib of siblings) {
+    sib.printLabels = val;
+    // Mirror the checkbox state in any other sibling's rendered block
+    // header.  The clicked checkbox already shows `val` via this.checked.
+    if (sib.id !== bid) {
+      const cb = document.querySelector(`label input[type=checkbox][onclick*="setBlockPrintLabels(${sib.id},"]`);
+      if (cb) cb.checked = val;
+    }
+  }
+  const baseName = (b.name || '').replace(/ \(\d+\)$/, '');
+  const label = siblings.length > 1 ? `${baseName} (×${siblings.length} seksione)` : b.name;
+  shellToast(val
+    ? `Etiketat e ${label} do të printohen ✓`
+    : `Etiketat e ${label} u çaktivizuan`);
 }
 
 function _injectCodesIntoTxt(content, block, importQueue) {
@@ -12158,19 +12557,49 @@ function blockHasOptimizableRows(b) {
   });
 }
 
+// ── Block grouping (shared optimization) ───────────────────────────────
+// Blocks sharing the same (materialId, formatId) are auto-grouped: the
+// optimizer pools rows from every block in the group, the resulting panels
+// (and the WinCut .txt files derived from them) are shared.  Each block
+// keeps its own paint/tenije attributes, materials PDF, and workflow card
+// (per the operator's spec) — only the optimizer output is pooled.
+function _blockGroupKey(b) {
+  if (!b) return '';
+  return `${b.materialId || ''}|${b.formatId || ''}`;
+}
+function _siblingBlocks(b) {
+  if (!b) return [];
+  const key = _blockGroupKey(b);
+  return blocks.filter(x => _blockGroupKey(x) === key);
+}
+// Whether this block has any sibling sharing material+format.  Used by
+// the block header to render the small "🔗 grupuar" badge.
+function _blockHasSiblings(b) {
+  return _siblingBlocks(b).length > 1;
+}
+
 function markBlockDirty(b) {
   if (!b) return;
-  b._optDirty = true;
-  refreshOptButton(b);
-  refreshStaleWarning(b);
+  // Propagate dirty state across the whole group: an edit in any sibling
+  // invalidates the SHARED optimization, so every block needs a re-optimize
+  // signal in its UI.
+  for (const sib of _siblingBlocks(b)) {
+    sib._optDirty = true;
+    refreshOptButton(sib);
+    refreshStaleWarning(sib);
+  }
 }
 
 function markBlockClean(b) {
   if (!b) return;
-  b._optDirty = false;
-  b._optFingerprint = getBlockOptFingerprint(b);
-  refreshOptButton(b);
-  refreshStaleWarning(b);
+  // Mirror dirty propagation: after a successful group optimize we mark every
+  // sibling clean so all of them flip out of the "needs re-optimize" state.
+  for (const sib of _siblingBlocks(b)) {
+    sib._optDirty = false;
+    sib._optFingerprint = getBlockOptFingerprint(sib);
+    refreshOptButton(sib);
+    refreshStaleWarning(sib);
+  }
 }
 
 function refreshOptButton(b) {
@@ -12336,68 +12765,85 @@ async function runOptimizer(bid) {
   const {lung:panelL, larg:panelW, spes:panelT, kerf, trimX, trimY} = b.cfg;
   const supplier = document.getElementById(`supplier-${bid}`)?.value || 'INCO - Group';
 
+  // Sibling group: blocks with the same materialId+formatId share the
+  // optimization.  Pool their rows so the optimizer sees a SINGLE pile of
+  // pieces and lays out one shared set of panels for all sections.  When
+  // there's no sibling the group is just [b], so the per-block flow below
+  // is unchanged for orders that don't use duplicate materials.
+  const siblings = _siblingBlocks(b);
+
   // Pre-flight: every piece must satisfy min-cut size and fit the panel in
   // at least one orientation (after trim). validateOrder also enforces this
   // on save, but blocking here gives a clearer message at optimize-time and
-  // prevents the worker from running on impossible input.
+  // prevents the worker from running on impossible input.  Walks pooled rows
+  // so a too-large piece in ANY sibling stops the optimizer right away.
   const MIN_DIM = 65;
   const trim = Math.max(parseFloat(trimX) || 0, parseFloat(trimY) || 0);
   const availL = Math.max(0, (parseFloat(panelL) || 0) - trim);
   const availW = Math.max(0, (parseFloat(panelW) || 0) - trim);
-  for(const r of b.rows){
-    const l = parseFloat(r.l) || 0, g = parseFloat(r.g) || 0, s = parseInt(r.s) || 0;
-    if(!(l>0 && g>0 && s>0)) continue;
-    if(l < MIN_DIM || g < MIN_DIM) {
-      shellToast(`Rreshti ${r._idx}: copa ${l}×${g} ka anë < ${MIN_DIM} mm — nuk lejohet`, 'err');
-      return;
-    }
-    const fits = (l <= availL && g <= availW) || (l <= availW && g <= availL);
-    if(!fits) {
-      shellToast(`Rreshti ${r._idx}: copa ${l}×${g} nuk hyn në pllakën ${panelL}×${panelW} (max ${availL}×${availW} pas rifilos)`, 'err');
-      return;
+  for (const sib of siblings) {
+    for(const r of sib.rows){
+      const l = parseFloat(r.l) || 0, g = parseFloat(r.g) || 0, s = parseInt(r.s) || 0;
+      if(!(l>0 && g>0 && s>0)) continue;
+      if(l < MIN_DIM || g < MIN_DIM) {
+        const where = siblings.length > 1 ? ` (${sib.name}, rreshti ${r._idx})` : ` (rreshti ${r._idx})`;
+        shellToast(`Copa ${l}×${g}${where} ka anë < ${MIN_DIM} mm — nuk lejohet`, 'err');
+        return;
+      }
+      const fits = (l <= availL && g <= availW) || (l <= availW && g <= availL);
+      if(!fits) {
+        const where = siblings.length > 1 ? ` (${sib.name})` : '';
+        shellToast(`Copa ${l}×${g}${where} nuk hyn në pllakën ${panelL}×${panelW} (max ${availL}×${availW} pas rifilos)`, 'err');
+        return;
+      }
     }
   }
 
-  // Build the raw piece list from the block's rows — same rule as before:
-  // skip rows with zero/missing dimensions or qty.
+  // Build the raw piece list from POOLED rows across the sibling group.
+  // Each grain group keeps its row.id-based groupId as before — rows from
+  // different sibling blocks therefore get distinct grain groups even when
+  // dimensions match, which is the same isolation property non-grouped
+  // single-block optimize relied on before.
   const raw = [];
-  for(const r of b.rows){
-    const l=parseFloat(r.l)||0, g=parseFloat(r.g)||0, s=parseInt(r.s)||0;
-    if(l>0&&g>0&&s>0) {
-      // grainLock: each checked row is its own group, keyed by row id, so
-      // pieces from the same row share a Y-band but different rows don't.
-      // groupColor: rows that share a groupColor are "aligned" — the optimizer
-      // forces them into the same vertical X-mode strip on a panel (or
-      // overflows to a second strip on the same panel if too tall).  This is
-      // the highest-priority constraint (above material savings).  Setting
-      // groupColor implies grainLock (no rotation), enforced in the UI.
-      const piece = r.grainLock
-        ? { w:l, h:g, grainLock:true, groupId:r.id, alignGroup: r.groupColor || null }
-        : { w:l, h:g };
-      for(let i=0;i<s;i++) raw.push({...piece});
+  for (const sib of siblings) {
+    for(const r of sib.rows){
+      const l=parseFloat(r.l)||0, g=parseFloat(r.g)||0, s=parseInt(r.s)||0;
+      if(l>0&&g>0&&s>0) {
+        const piece = r.grainLock
+          ? { w:l, h:g, grainLock:true, groupId:r.id, alignGroup: r.groupColor || null }
+          : { w:l, h:g };
+        for(let i=0;i<s;i++) raw.push({...piece});
+      }
     }
   }
   if(raw.length===0){ showMsg('Nuk ka dimensione!'); return; }
 
-  // Mark as running — button switches to spinner; other blocks can't start an optimization while this runs.
-  b._optRunning = true;
-  refreshOptButton(b);
+  // Mark every sibling as running — button on EVERY block in the group flips
+  // to spinner so the operator can't accidentally start a second optimize
+  // mid-flight from a different section.
+  for (const sib of siblings) {
+    sib._optRunning = true;
+    refreshOptButton(sib);
+  }
 
   const cutDir = (b.cutDir === 'X' || b.cutDir === 'Y') ? b.cutDir : 'auto';
 
-  // Visual feedback — find the button in the opt-panel and show a spinner.
-  // The opt-panel re-renders fully when results come back, so we don't need
-  // to clean up state on success — just set it and let renderOptPanelInner
-  // overwrite it.
-  const optDiv = document.getElementById(`opt-panel-${bid}`);
-  let originalOptHTML = null;
-  if(optDiv) {
-    originalOptHTML = optDiv.innerHTML;
-    optDiv.innerHTML = `<div style="padding:32px;text-align:center;color:var(--muted);">
-      <div style="font-size:14px;margin-bottom:8px;">Po llogaritet optimizimi…</div>
+  // Visual feedback — show the spinner in EVERY sibling's opt-panel so the
+  // operator can tell at a glance that the shared run is in flight from any
+  // section of the order, not just the one they clicked.
+  const spinnerHtml = `<div style="padding:32px;text-align:center;color:var(--muted);">
+      <div style="font-size:14px;margin-bottom:8px;">Po llogaritet optimizimi…${siblings.length > 1 ? ` <span style="color:#1a4a8c;font-weight:700">(${siblings.length} seksione të grupuara)</span>` : ''}</div>
       <div style="font-size:11px;opacity:.7;">Zakonisht përfundon brenda pak sekondash</div>
     </div>`;
+  const originalOptHTML = new Map();
+  for (const sib of siblings) {
+    const sibDiv = document.getElementById(`opt-panel-${sib.id}`);
+    if (sibDiv) {
+      originalOptHTML.set(sib.id, sibDiv.innerHTML);
+      sibDiv.innerHTML = spinnerHtml;
+    }
   }
+  const optDiv = document.getElementById(`opt-panel-${bid}`);
 
   let response;
   try {
@@ -12430,9 +12876,15 @@ async function runOptimizer(bid) {
     }
   } catch (err) {
     console.error('[runOptimizer] worker call failed:', err);
-    if(optDiv && originalOptHTML !== null) optDiv.innerHTML = originalOptHTML;
-    b._optRunning = false;
-    refreshOptButton(b);
+    // Restore every sibling's opt-panel + clear running state across the
+    // group so each section returns to its pre-click view.
+    for (const sib of siblings) {
+      const sibDiv = document.getElementById(`opt-panel-${sib.id}`);
+      const html = originalOptHTML.get(sib.id);
+      if (sibDiv && html != null) sibDiv.innerHTML = html;
+      sib._optRunning = false;
+      refreshOptButton(sib);
+    }
     let msg = 'Optimizimi dështoi.';
     if (err.code === 'invalid-argument') msg = err.message || 'Të dhëna të pavlefshme.';
     else if (err.message && err.message.toLowerCase().includes('worker')) msg = 'Procesi i optimizimit u prish. Provo përsëri.';
@@ -12441,27 +12893,33 @@ async function runOptimizer(bid) {
   }
 
   if (!response || !Array.isArray(response.panels)) {
-    if(optDiv && originalOptHTML !== null) optDiv.innerHTML = originalOptHTML;
-    b._optRunning = false;
-    refreshOptButton(b);
+    for (const sib of siblings) {
+      const sibDiv = document.getElementById(`opt-panel-${sib.id}`);
+      const html = originalOptHTML.get(sib.id);
+      if (sibDiv && html != null) sibDiv.innerHTML = html;
+      sib._optRunning = false;
+      refreshOptButton(sib);
+    }
     shellToast('Përgjigje e pavlefshme nga optimizatori.', 'err');
     return;
   }
 
-  // Build (w,h)-keyed lookup of group colors so each placed piece can be
-  // tinted with its row's color on the panel preview.  Same-dimension rows
-  // with different colors: the first wins (rare in practice).
-  // KEY ROUNDING: the optimizer's strip math can produce piece heights with
-  // tiny floating-point drift (e.g. 430 → 429.99999999999994 after a kerf
-  // chain), so we round to 1mm before keying so "1194_430" matches the
-  // drifted placement "1194_429.99999...".
+  // Pooled (w,h)-keyed group-color lookup across the sibling group, so a
+  // placement of dimension X×Y on a shared panel can be tinted from whichever
+  // sibling block contributed that row.  Same-dim collisions: the first
+  // sibling iterated wins (same as the single-block behavior, just over a
+  // larger row pool).
+  // KEY ROUNDING: optimizer strip math can drift piece heights by tiny float
+  // amounts (430 → 429.99999...).  Round to 1 mm so lookups match.
   const _dimKey = (w, h) => Math.round(w) + '_' + Math.round(h);
   const colorByDims = new Map();
-  for (const r of (b.rows || [])) {
-    if (!r.groupColor) continue;
-    const lv = parseFloat(r.l) || 0, gv = parseFloat(r.g) || 0;
-    if (lv > 0 && gv > 0 && !colorByDims.has(_dimKey(lv, gv))) {
-      colorByDims.set(_dimKey(lv, gv), r.groupColor);
+  for (const sib of siblings) {
+    for (const r of (sib.rows || [])) {
+      if (!r.groupColor) continue;
+      const lv = parseFloat(r.l) || 0, gv = parseFloat(r.g) || 0;
+      if (lv > 0 && gv > 0 && !colorByDims.has(_dimKey(lv, gv))) {
+        colorByDims.set(_dimKey(lv, gv), r.groupColor);
+      }
     }
   }
 
@@ -12470,12 +12928,12 @@ async function runOptimizer(bid) {
   // Also compute `cuts` (red guillotine lines for the 2D preview) — purely
   // visual, derived from the same strip structure.
   //
-  // Shared import queue: built ONCE per block so case numbers / codes /
-  // descriptions are consumed FIFO across every panel (panel 1 gets the
-  // first N pieces of each dimension, panel 2 gets the next, etc.). If
-  // we built it per panel, every panel would re-use cases 1..N and the
-  // 49 physical pieces would get duplicate labels.
-  const _importQueue = _buildImportQueueForBlock(b);
+  // POOLED import queue: built ONCE per GROUP (not per block) so case
+  // numbers / codes / descriptions from every sibling's rows are consumed
+  // FIFO across every panel.  Without pooling, a sibling block whose rows
+  // got placed on the shared panel would lose their labels because
+  // _injectCodesIntoTxt looks them up from b.rows only.
+  const _importQueue = _buildImportQueueForGroup(siblings);
   const panels = response.panels.map(p => {
     const vis = p.mode === 'Y'
       ? visY(p.strips, trimX, trimY, kerf, panelW)
@@ -12508,31 +12966,41 @@ async function runOptimizer(bid) {
     };
   });
 
-  b.panels = panels;
-  // v3: capture partial-result flags from the backend so renderOptPanelInner
-  // can show the yellow banner. When false/absent, the layout was a full
-  // (non-truncated) enrichment run — banner stays hidden.
-  b._partial       = !!response.partial;
-  b._partialReason = response.partialReason || null;
-  b._optRunning = false;
-  markBlockClean(b);
+  // Assign the SAME panels reference to every sibling so all sections see
+  // the shared optimization.  After save/reload each sibling deserializes
+  // its own copy; openOrder's re-share pass restores reference identity.
+  // _partial flags + _optRunning + clean state all propagate too — siblings
+  // are equal first-class citizens in the group.
+  for (const sib of siblings) {
+    sib.panels = panels;
+    sib._partial       = !!response.partial;
+    sib._partialReason = response.partialReason || null;
+    sib._optRunning    = false;
+  }
+  markBlockClean(b);   // markBlockClean iterates the group internally
 
-  // Refresh prices — b.panels.length changed so panel & cutting costs must update
-  updateBlockPrice(b);
+  // Refresh prices for every sibling — panel count drives panel/cutting cost.
+  for (const sib of siblings) updateBlockPrice(sib);
   updateGrandTotal();
 
-  // Update ONLY the opt-panel div — no full page re-render
-  if(optDiv) {
-    optDiv.innerHTML = renderOptPanelInner(b);
+  // Re-render the opt-panel div on EVERY sibling so all sections show the
+  // new shared panels + new "Optimizo" button state at once.
+  for (const sib of siblings) {
+    const sibDiv = document.getElementById(`opt-panel-${sib.id}`);
+    if (sibDiv) sibDiv.innerHTML = renderOptPanelInner(sib);
   }
 
-  // draw canvases after DOM update
+  // Draw canvases for every sibling.  Each sibling has its own colorMap
+  // (its rows' group colors), and the canvas id is keyed by (blockId,
+  // panelIdx) so multiple sibling canvases coexist in the DOM.
   setTimeout(()=>{
-    const colorMap = _makeColorMapFromRows(b.rows);
-    panels.forEach((p,pi)=>{
-      const canvas=document.getElementById(`canvas-${bid}-${pi}`);
-      if(canvas) drawCanvas(canvas,panelL,panelW,p.vis,trimX,trimY,{cuts:p.cuts,colorMap});
-    });
+    for (const sib of siblings) {
+      const colorMap = _makeColorMapFromRows(sib.rows);
+      panels.forEach((p,pi)=>{
+        const canvas=document.getElementById(`canvas-${sib.id}-${pi}`);
+        if(canvas) drawCanvas(canvas,panelL,panelW,p.vis,trimX,trimY,{cuts:p.cuts,colorMap});
+      });
+    }
   }, 50);
 }
 
@@ -12584,11 +13052,21 @@ function exportAllFiles_header() {
   if(!ensureAllBlocksOptimized()) return;
   const ready = blocks.filter(b=>b.panels&&b.panels.length>0);
   if(ready.length===0){ shellToast('Ekzekuto optimizimin fillimisht!','err'); return; }
-  let delay=0;
+  // Dedupe by sibling group: panels are shared inside a group, so kicking
+  // off the per-panel downloads for every sibling would queue up duplicate
+  // file writes (and downloadFile from any sibling already produces the
+  // same .txt content).  Walk the first sibling of each group only.
+  const groupsSeen = new Set();
+  let delay = 0;
+  let panelCount = 0;
   for(const b of ready){
+    const gkey = _blockGroupKey(b);
+    if (groupsSeen.has(gkey)) continue;
+    groupsSeen.add(gkey);
     b.panels.forEach((_,i)=>{ setTimeout(()=>downloadFile(b.id,i),delay); delay+=300; });
+    panelCount += b.panels.length;
   }
-  shellToast(`Po eksportohen skedarët (${ready.reduce((s,b)=>s+b.panels.length,0)} panele)…`);
+  shellToast(`Po eksportohen skedarët (${panelCount} panele)…`);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -12599,15 +13077,38 @@ function exportAllFiles_header() {
 // naming logic stays in one place.
 function _collectWincutFiles(klienti, fatura) {
   const files = [];
-  for (const b of blocks) {
-    // Apply the per-block "Printo Etiketat" toggle once per block so every
-    // panel of a material respects the same setting.  Materials with the box
-    // checked stream verbatim; un-checked materials get [Riferimenti] refs
-    // stripped so WinCut emits no labels for them.
+  // Sibling groups share their optimization, so each (materialId, formatId)
+  // pair emits ONE set of WinCut .txt files — not one per sibling.  Walk
+  // blocks in order, dedup by group key, and use the FIRST sibling's name as
+  // the file-base (which is the unsuffixed "<material> Nmm" — the auto
+  // " (2)" suffixes are reserved for siblings 2+).
+  const emittedGroups = new Set();
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    const gkey = _blockGroupKey(b);
+    if (emittedGroups.has(gkey)) continue;
+    emittedGroups.add(gkey);
+    // Sub-number(s) for the filename: zero-padded 1-based block index in the
+    // order.  For groups (same material+format added twice or more), join
+    // every sibling's sub-no with '-' so the operator can see at a glance
+    // that one WinCut file covers multiple order-page sections.
+    //   Single block at index 0  → "001"   → "Klient_115-001_…"
+    //   Group of blocks 0 + 1    → "001-002" → "Klient_115-001-002_…"
+    const subNos = [];
+    for (let j = 0; j < blocks.length; j++) {
+      if (_blockGroupKey(blocks[j]) === gkey) subNos.push(String(j + 1).padStart(3, '0'));
+    }
+    const subNosStr = subNos.join('-');
+    // Use the unsuffixed base name for the shared filename so e.g.
+    // "Melamine 18mm" doesn't accidentally become "Melamine 18mm (2)"
+    // when the operator clicked download from the second sibling.
+    const fileBase = (b.name || '').replace(/ \(\d+\)$/, '');
+    // "Printo Etiketat" is per-block but synced across the group, so any
+    // sibling's printLabels reflects the group's setting.
     const strip = (c) => _stripLabelRefsIfDisabled(c, b);
     b.panels.forEach((p, pi) => {
       const idx  = String(pi + 1).padStart(2, '0');
-      const base = `${klienti}_${fatura}_${b.name}_${idx}`;
+      const base = `${klienti}_${fatura}-${subNosStr}_${fileBase}_${idx}`;
       if (p._splitInfo && Array.isArray(p._splitInfo.parts) && p._splitInfo.parts.length === 2) {
         files.push([`${base}_A.txt`, strip(p._splitInfo.parts[0].content)]);
         files.push([`${base}_B.txt`, strip(p._splitInfo.parts[1].content)]);
@@ -13067,12 +13568,15 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
   };
   const Y_AFTER_HEADER = 36;
 
-  // When `onlyBlockId` is supplied, render just that single material —
-  // used by the per-block "Printo Dokumentin" button so operators can
-  // print one material section without printing the whole order.
+  // When `onlyBlockId` is supplied, render just the targeted materials.
+  // Accepts either a single block id (existing "Printo Dokumentin" per-block
+  // button) or an ARRAY of ids (used by the saw "Hap Dokumentat" path
+  // which renders all grouped siblings in one document).
   const targetBlocks = (onlyBlockId == null)
     ? blocks
-    : blocks.filter(b => b.id === onlyBlockId);
+    : Array.isArray(onlyBlockId)
+      ? blocks.filter(b => onlyBlockId.includes(b.id))
+      : blocks.filter(b => b.id === onlyBlockId);
 
   let firstBlock = true;
   for(const b of targetBlocks){
@@ -13087,7 +13591,15 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
     if(!firstBlock){ doc.addPage(); y = Y_AFTER_HEADER; }
     firstBlock = false;
     y+=4;
-    y = drawSectionBar(doc, `${b.name}  ·  ${b.rows.filter(r=>parseInt(r.s)>0).length} rreshta`, color, y);
+    // Sub-number "{fatura}-{1-based block index}" — printed in the section
+    // bar so the workshop can match a physical pile of pieces back to the
+    // exact material section in the order (same scheme as dept cards + the
+    // workflow header).  Position is always taken from the FULL `blocks`
+    // array, not `targetBlocks`, so a per-block PDF (Printo Dokumentin)
+    // still shows the right index.
+    const _subNo = (blocks.indexOf(b) + 1) || 1;
+    const _subLabel = `#${fatura}-${_subNo}`;
+    y = drawSectionBar(doc, `${_subLabel}  ·  ${b.name}  ·  ${b.rows.filter(r=>parseInt(r.s)>0).length} rreshta`, color, y);
     y+=2;
 
     // Warehouse detail box: paint kg, m², tenie, panel count, measure mode.
@@ -13515,6 +14027,12 @@ function renderKanban() {
     const colOrders = filtered.filter(o => {
       const state = kd[o.id] || { col:'pritje' };
       return state.col === col.id;
+    }).sort((a, b) => {
+      // Newest first inside each kanban column — primary by data, then id.
+      const da = String(a.data || '');
+      const db = String(b.data || '');
+      if (da !== db) return db.localeCompare(da);
+      return (b.id || 0) - (a.id || 0);
     });
 
     const colEl = document.createElement('div');
@@ -13998,6 +14516,9 @@ function wfSetView(view) {
     try { _wfFirestoreUnsub(); } catch(e) {}
     _wfFirestoreUnsub = null;
   }
+  // Persist the new drill-in level so a refresh from the block workspace
+  // doesn't drop the operator back at the dept list.
+  if (typeof _saveLastView === 'function') _saveLastView();
 }
 
 // Back to the dept landing — the new default management entry.
@@ -14008,6 +14529,7 @@ function wfBackToDepartments() {
   _wfState.deptContext = null;
   _wfState.openedFrom  = null;
   _wfState.readOnly    = false;   // dept view is always actionable
+  _wfState.groupedSiblingIdxs = null;
   wfSetView('departments');
   wfDrawDestroy();
   renderDepartments(_wfDept.currentTab, true);
@@ -14081,10 +14603,12 @@ window._wfDept = {
   cacheTTL: 60000,
 };
 
-// Load all "active" (procesim or perfunduar) orders' full docs into memory.
-// procesim = currently being worked on, perfunduar = all blocks done but
-// not yet delivered (managers might still want visibility / reverts). We
-// skip pritje (not started) and derguar (delivered).
+// Load every non-delivered order's full doc into memory so the workflow
+// tabs (Sharra/Bordim/CNC/Lyerje) can show the full pipeline:
+//   - 'pritje'     : just placed, not started — operators see incoming work.
+//   - 'procesim'   : actively being worked on.
+//   - 'perfunduar' : finished but not delivered (managers can revert).
+// Only 'derguar' (delivered) is skipped because the work is done.
 async function _wfLoadActiveOrders(force) {
   const now = Date.now();
   if (!force && _wfDept.orders && (now - _wfDept.loadedAt) < _wfDept.cacheTTL) {
@@ -14093,8 +14617,16 @@ async function _wfLoadActiveOrders(force) {
   const summaries = (typeof loadOrders === 'function') ? loadOrders() : [];
   const kd = (typeof loadKanbanData === 'function') ? loadKanbanData() : {};
   const activeSummaries = summaries.filter(s => {
+    // Workflow tabs show every NON-DELIVERED order:
+    //   - 'pritje'     — just placed, not started.  The saw operator still
+    //                    needs visibility of incoming work, so we include it.
+    //   - 'procesim'   — actively being worked on.
+    //   - 'perfunduar' — finished but not delivered (managers can revert).
+    //   - 'derguar'    — delivered: skipped, nothing to do.
+    // No kanban doc → fall back to 'pritje' (same as getOrderKbCol) — also
+    // included by the filter below, so brand-new orders surface here too.
     const col = (kd[s.id] && kd[s.id].col) || 'pritje';
-    return col === 'procesim' || col === 'perfunduar';
+    return col !== 'derguar';
   });
   // Parallel load — caps practical concurrency to ~6 by browser anyway.
   const fullOrders = await Promise.all(
@@ -14113,9 +14645,15 @@ async function _wfLoadActiveOrders(force) {
   return _wfDept.orders;
 }
 
-// Return [{order, block, blockIdx}, …] for all blocks where the requested
-// dept is the NEXT pending stage (i.e. status === 'pending' and not 'locked'
-// because all earlier applicable stages are already done).
+// Return [{order, block, blockIdx, blockIdxs?}, …] for all blocks where the
+// requested dept is the NEXT pending stage (i.e. status === 'pending' and not
+// 'locked' because all earlier applicable stages are already done).
+//
+// SAW grouping: blocks that share (materialId, formatId) inside the same
+// order are CUT TOGETHER (they share an optimization + WinCut output), so
+// the saw tab presents them as ONE task.  Marking that task done advances
+// every member's saw stage at once.  Other depts keep per-block cards
+// because the downstream attributes (paint, tenije, frezim) are per-block.
 function _wfGetBlocksForDept(deptId) {
   const out = [];
   for (const order of (_wfDept.orders || [])) {
@@ -14127,12 +14665,36 @@ function _wfGetBlocksForDept(deptId) {
       }
     }
   }
-  // Oldest order first — earliest dates get worked on first.
-  out.sort((a, b) =>
-    String(a.order.data || '').localeCompare(String(b.order.data || ''))
-    || (a.order.id - b.order.id)
-  );
-  return out;
+  let result = out;
+  if (deptId === 'saw') {
+    // Dedupe by (orderId, materialId, formatId).  The first sibling becomes
+    // the representative `block`/`blockIdx`; the full member list goes into
+    // `blockIdxs` so the card and action handlers can iterate every member.
+    const groupMap = new Map();
+    for (const item of out) {
+      const key = item.order.id + '|' + (item.block.materialId || '') + '|' + (item.block.formatId || '');
+      if (groupMap.has(key)) {
+        groupMap.get(key).blockIdxs.push(item.blockIdx);
+      } else {
+        groupMap.set(key, {
+          order: item.order,
+          block: item.block,
+          blockIdx: item.blockIdx,
+          blockIdxs: [item.blockIdx],
+        });
+      }
+    }
+    result = Array.from(groupMap.values());
+  }
+  // Newest order first — matches the sort used everywhere else (orders list,
+  // kanban board).  Primary by `data` desc, tiebreaker by id desc.
+  result.sort((a, b) => {
+    const da = String(a.order.data || '');
+    const db = String(b.order.data || '');
+    if (da !== db) return db.localeCompare(da);
+    return (b.order.id || 0) - (a.order.id || 0);
+  });
+  return result;
 }
 
 // Update each tab's count badge.
@@ -14220,7 +14782,7 @@ function _wfDeptCardHtml(item, dept) {
     return `<div class="wf-dept-card" onclick="wfOpenBlockFromDept(${order.id},${blockIdx},'${dept}')">
       <span class="wf-dept-card-dot" style="background:${dot}"></span>
       <div class="wf-dept-card-meta">
-        <div class="order">${escHtml(liveName)} · #${escHtml(String(order.fatura || order.id))}</div>
+        <div class="order">${escHtml(liveName)} · #${escHtml(String(order.fatura || order.id))}-${blockIdx + 1}</div>
         <div class="date">${escHtml(order.data || '—')}</div>
       </div>
       <div class="wf-dept-card-main">
@@ -14236,20 +14798,50 @@ function _wfDeptCardHtml(item, dept) {
   }
 
   // Saw / Bordim / CNC: single Mbarova button advances the whole stage.
-  return `<div class="wf-dept-card" onclick="wfOpenBlockFromDept(${order.id},${blockIdx},'${dept}')">
+  // SAW special case: when item.blockIdxs has 2+ members (siblings of the
+  // same material+format inside one order), render ONE grouped card that
+  // covers the whole cut run — Mbarova advances every member's saw stage
+  // at once, "Hap Dokumentat" opens a single PDF with each sibling's row
+  // sheet, and the title lists every sub-number ("#115-1/2").
+  const idxs = Array.isArray(item.blockIdxs) ? item.blockIdxs : [blockIdx];
+  const isGroupedSaw = dept === 'saw' && idxs.length > 1;
+  // Sub-no label: "#115-1" or "#115-1/2" / "#115-1/2/3".
+  const fatura = escHtml(String(order.fatura || order.id));
+  const subNos = idxs.map(i => i + 1);
+  const subLabel = '#' + fatura + '-' + subNos.join('/');
+  // For grouped saw, aggregate the piece count across every sibling; the
+  // panel count stays the same (siblings share the optimized panel set).
+  const totCopeAll = isGroupedSaw
+    ? idxs.reduce((s, i) => s + (order.blocks[i].rows || []).reduce((ss, r) => ss + (parseInt(r.s) || 0), 0), 0)
+    : totCope;
+  // For grouped, use the unsuffixed base name ("Melamine 18mm") and append
+  // the sibling count so the operator sees both materials are bundled.
+  const matBaseName = (block.name || block.type || '—').replace(/ \(\d+\)$/, '');
+  const matLabel = isGroupedSaw
+    ? matBaseName + ' (×' + idxs.length + ')'
+    : (block.name || block.type || '—');
+  const idxsJson = JSON.stringify(idxs);
+  const openHandler = isGroupedSaw
+    ? `wfOpenBlockFromDept(${order.id},${blockIdx},'${dept}',${idxsJson})`
+    : `wfOpenBlockFromDept(${order.id},${blockIdx},'${dept}')`;
+  const doneHandler = isGroupedSaw
+    ? `wfMarkDeptDoneMulti(${order.id},${idxsJson},'${dept}')`
+    : `wfMarkDeptDone(${order.id},${blockIdx},'${dept}')`;
+  const openLabel = isGroupedSaw ? '📄 Hap Dokumentat' : '📄 Hap dokumentin';
+  return `<div class="wf-dept-card" onclick="${openHandler}">
     <span class="wf-dept-card-dot" style="background:${dot}"></span>
     <div class="wf-dept-card-meta">
-      <div class="order">${escHtml(liveName)} · #${escHtml(String(order.fatura || order.id))}</div>
+      <div class="order">${escHtml(liveName)} · ${subLabel}</div>
       <div class="date">${escHtml(order.data || '—')}</div>
     </div>
     <div class="wf-dept-card-main">
-      <div class="wf-dept-card-mat">${escHtml(block.name || block.type || '—')}</div>
-      <div class="wf-dept-card-stats">${totCope} copë${nPanels ? ' · ' + nPanels + ' panele' : ''}</div>
+      <div class="wf-dept-card-mat">${escHtml(matLabel)}</div>
+      <div class="wf-dept-card-stats">${totCopeAll} copë${nPanels ? ' · ' + nPanels + ' panele' : ''}</div>
       ${nextLine}
     </div>
     <div class="wf-dept-card-actions" onclick="event.stopPropagation()">
-      <button class="btn btn-sm" onclick="wfOpenBlockFromDept(${order.id},${blockIdx},'${dept}')" style="background:#1a4a8c;color:#fff;">📄 Hap dokumentin</button>
-      <button class="btn btn-sm" onclick="wfMarkDeptDone(${order.id},${blockIdx},'${dept}')" style="background:#16a34a;color:#fff;font-weight:700;">✓ Mbarova</button>
+      <button class="btn btn-sm" onclick="${openHandler}" style="background:#1a4a8c;color:#fff;">${openLabel}</button>
+      <button class="btn btn-sm" onclick="${doneHandler}" style="background:#16a34a;color:#fff;font-weight:700;">✓ Mbarova</button>
     </div>
   </div>`;
 }
@@ -14283,7 +14875,12 @@ async function wfTogglePaintSub(orderId, blockIdx, subKey) {
 
 // Card → open the block workspace (View 3) carrying dept context, so the
 // action bar there shows "Mbarov" for the right stage / sub-stage.
-async function wfOpenBlockFromDept(orderId, blockIdx, deptId) {
+//
+// `siblingIdxs` (optional, saw-only) carries the full list of grouped
+// blockIdx values that share this saw task.  When set, wfRenderBlockPdf
+// renders a combined materials PDF with every sibling's sheet, and the
+// workspace's Mbarova advances every member's saw stage in one shot.
+async function wfOpenBlockFromDept(orderId, blockIdx, deptId, siblingIdxs) {
   let order = (_wfDept.orders || []).find(o => o.id === orderId);
   if (!order) {
     order = await loadFullOrder(orderId);
@@ -14294,14 +14891,34 @@ async function wfOpenBlockFromDept(orderId, blockIdx, deptId) {
   _wfState.blockId = blockIdx;
   _wfState.deptContext = deptId;
   _wfState.openedFrom  = 'departments';
+  // Stash the saw-grouped sibling list so wfRenderBlockPdf can build the
+  // combined PDF and wfRenderBlockActionBar can wire Mbarova to the multi
+  // helper.  Cleared by other entry points (wfOpenBlock from View 2) so
+  // single-block paths never inherit a stale group.
+  _wfState.groupedSiblingIdxs = (deptId === 'saw' && Array.isArray(siblingIdxs) && siblingIdxs.length > 1)
+    ? siblingIdxs.slice()
+    : null;
   const block = order.blocks[blockIdx];
   wfEnsureBlockWorkflow(block);
   const liveName = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri)
                     || order.klient_emri || '—';
   const orderNameEl = document.getElementById('wf-block-order-name');
   const blockNameEl = document.getElementById('wf-block-name');
-  if (orderNameEl) orderNameEl.textContent = `${liveName} · #${order.fatura || order.id}`;
-  if (blockNameEl) blockNameEl.textContent = block.name || block.type || '—';
+  // Sub-number = positional index inside this order's blocks list (1-based).
+  // For saw-grouped sibling tasks the header lists every member ("#115-1/2")
+  // so the operator can see the workspace covers more than one section.
+  const subNoLabel = _wfState.groupedSiblingIdxs
+    ? _wfState.groupedSiblingIdxs.map(i => i + 1).join('/')
+    : String(blockIdx + 1);
+  if (orderNameEl) orderNameEl.textContent = `${liveName} · #${order.fatura || order.id}-${subNoLabel}`;
+  if (blockNameEl) {
+    // Strip the auto "(2)" suffix on the grouped variant so the title reads
+    // "MDF Bardhe Shqeto 18mm (×2 seksione)" instead of "… (2) (×2 …)".
+    const baseName = (block.name || block.type || '—').replace(/ \(\d+\)$/, '');
+    blockNameEl.textContent = _wfState.groupedSiblingIdxs
+      ? `${baseName} (×${_wfState.groupedSiblingIdxs.length} seksione)`
+      : (block.name || block.type || '—');
+  }
   wfSetView('block');
   wfRenderBlockSide();
   wfRenderBlockActionBar();
@@ -14355,6 +14972,37 @@ async function wfMarkDeptDone(orderId, blockIdx, deptId) {
   _wfDeptUpdateCounts();
   renderDepartments(_wfDept.currentTab, false);
   shellToast(`✓ ${WF_DEPT_LABELS[deptId]} — ${block.name || ''}`, 'ok');
+}
+
+// Saw-grouped "Mbarova": mark every member sibling's saw stage done in a
+// single iteration over wfApplyStageChange.  Each call persists the order
+// doc to Firestore, so we sequence them awaitable to keep the writes
+// ordered (no concurrent updates fighting over the same blocks[] array).
+async function wfMarkDeptDoneMulti(orderId, blockIdxs, deptId) {
+  if (!Array.isArray(blockIdxs) || blockIdxs.length === 0) return;
+  const order = (_wfDept.orders || []).find(o => o.id === orderId);
+  if (!order) return;
+  const savedOrder = _wfState.order;
+  const savedBlockId = _wfState.blockId;
+  _wfState.order = order;
+  for (const idx of blockIdxs) {
+    const block = order.blocks[idx];
+    if (!block) continue;
+    wfEnsureBlockWorkflow(block);
+    _wfState.blockId = idx;
+    if (deptId === 'paint') {
+      const subs = block.workflow.paint.substages;
+      const next = WF_PAINT_SUBSTAGES.find(k => subs[k].status !== 'done');
+      if (next) await wfApplyStageChange(idx, 'paint', next, 'done');
+    } else {
+      await wfApplyStageChange(idx, deptId, null, 'done');
+    }
+  }
+  _wfState.order = savedOrder;
+  _wfState.blockId = savedBlockId;
+  _wfDeptUpdateCounts();
+  renderDepartments(_wfDept.currentTab, false);
+  shellToast(`✓ ${WF_DEPT_LABELS[deptId]} — ${blockIdxs.length} seksione`, 'ok');
 }
 
 // ─── View 1: mini pipeline strip on Kanban cards ──────────────────
@@ -14511,9 +15159,16 @@ function wfBlockCardHtml(block, idx) {
     }
   }
 
+  // Sub-number badge "{fatura}-{1-based block index}" so a block in View 2
+  // is immediately matchable with the same label in the dept queue cards,
+  // the materials PDF, and the order edit page.
+  const _orderForSub = _wfState.order || {};
+  const _faturaForSub = _orderForSub.fatura || _orderForSub.id || '';
+  const subNoBadge = `<span class="wf-block-card-subno" style="display:inline-block;font-family:'DM Mono',monospace;font-size:10px;font-weight:700;color:#1a4a8c;background:#eaf2fc;border:1px solid #bfd4ee;border-radius:5px;padding:2px 7px;margin-right:8px;letter-spacing:.02em;">#${escHtml(String(_faturaForSub))}-${idx + 1}</span>`;
   return `<div class="wf-block-card" data-block-idx="${idx}">
     <div class="wf-block-card-head">
       <span class="wf-block-card-dot" style="background:${dot}"></span>
+      ${subNoBadge}
       <span class="wf-block-card-name">${escHtml(block.name || block.type || '—')}</span>
       <div class="wf-block-card-stats">
         <div>COPË <b>${totCope}</b></div>
@@ -14602,14 +15257,31 @@ async function wfApplyStageChange(blockIdx, stage, subKey, nextStatus) {
     console.error('[wf] save failed:', e);
     shellToast('Ruajtja dështoi: ' + (e.message || e), 'err');
   }
-  // Auto-flip the kanban column when the whole order is complete. The
-  // column-transition handler will then mark everything as done — a no-op
-  // here since wfIsOrderDone implies everything's already done.
+  // Auto-flip the kanban column based on what just happened:
+  //   - Marking a stage DONE on an order that's still in 'pritje' (just
+  //     placed, not started) means work has actually begun.  Bump it to
+  //     'procesim' so the kanban board reflects reality.
+  //   - When the WHOLE order is complete, flip straight to 'perfunduar'.
+  //     The column-transition handler then marks every stage done, which is
+  //     a no-op here because wfIsOrderDone already implies they all are.
   if (wfIsOrderDone(order)) {
     const kd = loadKanbanData();
     const cur = kd[order.id] && kd[order.id].col;
     if (cur && cur !== 'perfunduar' && cur !== 'derguar') {
       moveKbOrderTo(order.id, 'perfunduar');
+    }
+  } else if (nextStatus === 'done') {
+    const curCol = getOrderKbCol(order.id);
+    if (curCol === 'pritje') {
+      // Quietly bump to procesim — DON'T route through moveKbOrderTo because
+      // its column-transition handler resets every stage to PENDING (it
+      // assumes the user dragged the order between staging columns).  We
+      // only want the kanban column to track reality, not to undo the
+      // operator's just-completed work.
+      const idStr = String(order.id);
+      if (!_KANBAN_CACHE[idStr]) _KANBAN_CACHE[idStr] = { col: 'procesim', phases: {} };
+      else _KANBAN_CACHE[idStr].col = 'procesim';
+      persistKanbanForOrder(order.id);
     }
   }
   // Re-render the current view.
@@ -14626,11 +15298,17 @@ async function wfOpenBlock(blockIdx) {
   // Clear deptContext — coming from View 2 means no specific dept queue;
   // the action bar should fall back to "first pending stage" logic.
   _wfState.deptContext = null;
+  // Also clear any saw-grouped sibling list — View 2 always opens a single
+  // block at a time so the workspace must NOT inherit a stale group set up
+  // by a previous saw entry.
+  _wfState.groupedSiblingIdxs = null;
   const block = order.blocks[blockIdx];
   wfEnsureBlockWorkflow(block);
-  // Header
+  // Header — sub-number "{fatura}-{1-based block index}" matches the
+  // labelling used everywhere else (dept cards, PDF, order edit page).
   const liveName = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri) || order.klient_emri || '—';
-  document.getElementById('wf-block-order-name').textContent = `${liveName} · #${order.fatura || order.id}`;
+  const subNo = blockIdx + 1;
+  document.getElementById('wf-block-order-name').textContent = `${liveName} · #${order.fatura || order.id}-${subNo}`;
   document.getElementById('wf-block-name').textContent       = block.name || block.type || '—';
   wfSetView('block');
   wfRenderBlockSide();
@@ -14688,7 +15366,18 @@ function wfRenderBlockActionBar() {
 // the operator came from (dept landing OR View 2 if they drilled in from
 // the order overview), so they go straight to their next item.
 async function wfAdvanceStageAndBack(stage) {
-  await wfApplyStageChange(_wfState.blockId, stage, null, 'done');
+  // Saw-grouped task: advance the saw stage on every sibling member so the
+  // operator's single Mbarova click clears the whole grouped row from the
+  // Sharra queue at once.  Other paths (single block, non-saw stages) keep
+  // their original per-block behavior.
+  const siblings = _wfState.groupedSiblingIdxs;
+  if (stage === 'saw' && Array.isArray(siblings) && siblings.length > 1) {
+    for (const idx of siblings) {
+      await wfApplyStageChange(idx, stage, null, 'done');
+    }
+  } else {
+    await wfApplyStageChange(_wfState.blockId, stage, null, 'done');
+  }
   wfBackFromBlock();
 }
 async function wfAdvancePaintSubAndBack(subKey) {
@@ -14765,7 +15454,15 @@ async function wfRenderBlockPdf(block) {
   blocks = order.blocks || [];
   let pdfBlob = null;
   try {
-    const pdf = buildMaterialsPDF(klient, String(fatura), data, block.id);
+    // For a saw-grouped task, build the PDF with EVERY sibling's id so the
+    // document contains all materials being cut together.  Otherwise just
+    // the single block.  buildMaterialsPDF accepts either form (single id
+    // or array of ids).
+    const siblingIdxs = _wfState.groupedSiblingIdxs;
+    const targetIds = (Array.isArray(siblingIdxs) && siblingIdxs.length > 1)
+      ? siblingIdxs.map(i => order.blocks[i] && order.blocks[i].id).filter(x => x != null)
+      : block.id;
+    const pdf = buildMaterialsPDF(klient, String(fatura), data, targetIds);
     pdfBlob = pdf.output('blob');
   } catch (e) {
     stage.innerHTML = `<div class="wf-pdf-loading">Gabim gjatë ndërtimit të dokumentit: ${e.message || e}</div>`;
@@ -15512,8 +16209,15 @@ function _pdfImportParseCell(cw) {
     let arr = cw.filter(w =>
       Math.abs(((w.top + w.bottom) / 2) - yc) < 5 &&
       w.x0 > anchor.x1 - 0.1);
-    if (opts && opts.skipDigits)
-      arr = arr.filter(w => !/^(#|\d{1,4})$/.test(w.text));
+    if (opts && opts.skipDigits) {
+      // Filter out the case-number marker AND bare numbers.  pdf.js may
+      // extract "# 7" as ONE merged word (with internal whitespace) OR
+      // TWO separate words ("#" + "7") — both must be excluded so the
+      // case marker never bleeds into the part description.  Previously
+      // only the bare forms ("#", "7") were caught, so the merged form
+      // ended up as part="# 7" for some labels.
+      arr = arr.filter(w => !/^(#\s*\d{0,4}|\d{1,4})$/.test(w.text));
+    }
     arr.sort((a, b) => a.x0 - b.x0);
     return arr;
   };
@@ -15563,17 +16267,18 @@ function _pdfImportParseCell(cw) {
   const thickness = tm ? parseInt(tm[1], 10) : null;
 
   const partAnchor = find('Part');
+  const isFrontBackHeader = (t) =>
+    /^(front|back)\b/i.test(t.replace(/[:.]$/, ''));
   let partWords = inlineRight(partAnchor, { skipDigits: true });
+  // FALLBACK 1 — description on lines BELOW the "Part:" label.
+  // Stop boundary: the FIRST line below "Part:" that begins with either
+  // "Front" or "Back" (case-insensitive, with or without trailing words
+  // like "Program" or a colon). The old `/^(Front|Back)$/` required an
+  // EXACT match, so when pdf.js extracted the text as a single merged
+  // word "Front Program" the boundary was missed, and every word below
+  // "Part:" — barcode placeholders, .pgm filenames, the literal labels —
+  // ended up in the part description.
   if (!partWords.length && partAnchor) {
-    // Stop boundary: the FIRST line below "Part:" that begins with either
-    // "Front" or "Back" (case-insensitive, with or without trailing words
-    // like "Program" or a colon). The old `/^(Front|Back)$/` required an
-    // EXACT match, so when pdf.js extracted the text as a single merged
-    // word "Front Program" the boundary was missed, and every word below
-    // "Part:" — barcode placeholders, .pgm filenames, the literal labels —
-    // ended up in the part description.
-    const isFrontBackHeader = (t) =>
-      /^(front|back)\b/i.test(t.replace(/[:.]$/, ''));
     const enders = cw.filter(w =>
       isFrontBackHeader(w.text) && w.top > partAnchor.top + 2);
     const endTop = enders.length ? Math.min(...enders.map(w => w.top)) : partAnchor.bottom + 80;
@@ -15589,6 +16294,53 @@ function _pdfImportParseCell(cw) {
       !/\.pgm\*?$/i.test(w.text) &&
       !/^\*[A-Za-z0-9_.\-]*\*$/.test(w.text) &&
       (w.size || 0) < 18);
+    partWords.sort((a, b) =>
+      (Math.round(a.top / 3) - Math.round(b.top / 3)) || (a.x0 - b.x0));
+  }
+  // FALLBACK 2 — description on the line ABOVE the "Part:" label.
+  // Some Albanian labels print the long part name (e.g. "Unfinished Right
+  // End/Anesore djathte e padukshme") on the row ABOVE "Part:" in a smaller
+  // font.  Whether the row's y-midpoint lands within inlineRight's 5 px
+  // tolerance depends on the rendered font size — for size 5.0 it sits at
+  // 4.6 px (inside) but for size 4.5 (the auto-compressed long variant) it
+  // sits at 5.05 px (just outside), so r20b0057 / r20b0063 / r20b0078 etc.
+  // were silently parsed with an empty part field.  This branch scans the
+  // gap between "Material:" and "Part:" for upright text that isn't the
+  // case marker (#N) or job title, picking up the description regardless.
+  if (!partWords.length && partAnchor) {
+    // Local inline material-label check — keeps this function self-contained
+    // so it works whether or not the outer caller (_pdfImportExtractPage)
+    // happens to define an isMaterialLabel of its own.
+    const isMatLabel = (t) =>
+      t === 'Material:' || t === 'Material' || /^material:?$/i.test(t);
+    const matBottom = matAnchor ? matAnchor.bottom : 0;
+    const matX1     = matAnchor ? matAnchor.x1     : -Infinity;
+    const matMidY   = matAnchor ? (matAnchor.top + matAnchor.bottom) / 2 : 0;
+    partWords = cw.filter(w => {
+      if (w === matAnchor || w === partAnchor) return false;
+      if (!w.upright) return false;
+      // Strictly between Material: bottom and Part: top.
+      if (w.top >= partAnchor.top - 0.2) return false;
+      if (w.top <= matBottom - 0.5)      return false;
+      // Skip the material-name text which sits inline-right of "Material:"
+      // (same y, x past matAnchor.x1).
+      const wmid = (w.top + w.bottom) / 2;
+      if (Math.abs(wmid - matMidY) < 5 && w.x0 > matX1 - 0.1) return false;
+      // Skip case markers ("#", "# 7", "#7"), bare numbers, big job-title
+      // text, .pgm filenames, *barcode* tokens.
+      if (/^#\s*\d{0,4}$/.test(w.text))     return false;
+      if (/^\d{1,4}(\.\d+)?$/.test(w.text)) return false;
+      if (isFrontBackHeader(w.text))        return false;
+      if (/\.pgm\*?$/i.test(w.text))        return false;
+      if (/^\*[A-Za-z0-9_.\-]*\*$/.test(w.text)) return false;
+      if (isMatLabel(w.text))               return false;
+      // 14 pt cutoff excludes the job title (rendered 15–16 pt) and the
+      // case-marker number ("# 7" is 12.5 pt — keep the threshold above
+      // that so a single-word part description in normal 10 pt size still
+      // makes it through).
+      if ((w.size || 0) >= 14) return false;
+      return true;
+    });
     partWords.sort((a, b) =>
       (Math.round(a.top / 3) - Math.round(b.top / 3)) || (a.x0 - b.x0));
   }
