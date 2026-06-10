@@ -1,0 +1,193 @@
+// ─────────────────────────────────────────────────────────────────
+// INCO Firestore Security Rules — Pass B (role-aware)
+//
+// Pass A (the previous version) only required Firebase Auth: any
+// signed-in user could read and write everything.  That meant the
+// admin/partner separation we added to the UI was decorative — a
+// determined partner could open devtools and bypass it by calling
+// the Firestore SDK directly.
+//
+// Pass B closes that gap.  Role enforcement now lives in the rules:
+//   • isAdmin()       — request.auth.token.email == admin email
+//   • isKnownPartner()— there's a partner_index/<email> doc whose
+//                       klientId points at this user's klient row
+// Partners can only read / write the orders and klients they own;
+// only the admin sees and modifies everything else.
+//
+// The partner_index/<email> lookup table is maintained by the admin's
+// klient-save flow (HTML) — checking the "Partner i autorizuar" box
+// writes the index row; unchecking deletes it.  An idempotent backfill
+// runs on every admin login to keep the index in sync if the table
+// was added after a klient was already flagged isPartner.
+//
+// NOTE ON `get()` AND `exists()`:
+//   These functions use service credentials, not the requesting user's
+//   credentials.  That means we can safely lookup partner_index even
+//   though regular partners don't have permission to read /partner_index
+//   directly (we still grant it for transparency).  No bootstrap deadlock.
+// ─────────────────────────────────────────────────────────────────
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ───── Identity helpers ───────────────────────────────────────
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Lowercase the auth email so admin/partner lookups stay stable
+    // regardless of how the user typed it on signup.
+    function userEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function isAdmin() {
+      return signedIn() && userEmail() == 'albanisela@gmail.com';
+    }
+
+    // partner_index/{email} is a tiny lookup doc: { klientId: 'klt_xxx' }.
+    // exists() / get() use service creds so partners cannot read this
+    // collection directly — but the rules can.
+    function isKnownPartner() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/partner_index/$(userEmail()));
+    }
+
+    function partnerKlientId() {
+      return get(/databases/$(database)/documents/partner_index/$(userEmail())).data.klientId;
+    }
+
+    function isAuthorized() {
+      return isAdmin() || isKnownPartner();
+    }
+
+    // ───── partner_index lookup table ─────────────────────────────
+    // Only the admin writes here (the saveKlient flow stamps it when
+    // the isPartner checkbox is toggled).  Authenticated users can
+    // read their own row only — keeps the table from being enumerable
+    // by curious partners while still letting the rules use it.
+    match /partner_index/{email} {
+      allow read:  if isAdmin() || (signedIn() && email == userEmail());
+      allow write: if isAdmin();
+    }
+
+    // ───── Konfigurim (4 fixed docs) ──────────────────────────────
+    // Everyone authorized can READ konfig — partners need it to compute
+    // order prices.  Only the admin writes; partners must not edit prices,
+    // formats, materials, or tenies.
+    function optionalNumber(f) {
+      return !(f in request.resource.data)
+          || request.resource.data[f] == null
+          || request.resource.data[f] is number;
+    }
+    match /konfig/{docId} {
+      allow read:  if isAuthorized();
+      allow write: if isAdmin()
+                   && docId in ['global', 'formats', 'materials', 'tenies']
+                   && optionalNumber('_saveStamp');
+    }
+
+    // ───── Klientët ───────────────────────────────────────────────
+    // Read:
+    //   admin   — all
+    //   partner — their own row + rows they created
+    // Create:
+    //   admin   — any
+    //   partner — only with createdBy == themselves and isPartner == false
+    //             (partners must not self-promote)
+    // Update:
+    //   admin   — any
+    //   partner — only rows they created; cannot change createdBy or
+    //             isPartner (which would be self-promotion or laundering
+    //             ownership of someone else's klient)
+    // Delete:
+    //   admin only — cascading delete from klient handles orders too,
+    //                so we keep this powerful operation gated.
+    match /klientet/{klientId} {
+      allow read: if isAdmin()
+        || (isKnownPartner() && (
+              klientId == partnerKlientId()
+              || resource.data.createdBy == partnerKlientId()
+            ));
+
+      allow create: if isAdmin()
+        || (isKnownPartner()
+            && request.resource.data.createdBy == partnerKlientId()
+            && request.resource.data.isPartner == false);
+
+      allow update: if isAdmin()
+        || (isKnownPartner()
+            && resource.data.createdBy == partnerKlientId()
+            && request.resource.data.createdBy == resource.data.createdBy
+            && request.resource.data.isPartner == resource.data.isPartner);
+
+      allow delete: if isAdmin();
+    }
+
+    // ───── Porosite index (order summaries) ──────────────────────
+    // Same ownership model as klientet.  Partners can only see/modify
+    // orders where createdBy is their klientId.
+    match /porosite_index/{orderId} {
+      allow read: if isAdmin()
+        || (isKnownPartner() && resource.data.createdBy == partnerKlientId());
+
+      allow create: if isAdmin()
+        || (isKnownPartner() && request.resource.data.createdBy == partnerKlientId());
+
+      allow update: if isAdmin()
+        || (isKnownPartner()
+            && resource.data.createdBy == partnerKlientId()
+            && request.resource.data.createdBy == resource.data.createdBy);
+
+      allow delete: if isAdmin();
+    }
+
+    // ───── Porosite (full order docs) ─────────────────────────────
+    match /porosite/{orderId} {
+      allow read: if isAdmin()
+        || (isKnownPartner() && resource.data.createdBy == partnerKlientId());
+
+      allow create: if isAdmin()
+        || (isKnownPartner() && request.resource.data.createdBy == partnerKlientId());
+
+      allow update: if isAdmin()
+        || (isKnownPartner()
+            && resource.data.createdBy == partnerKlientId()
+            && request.resource.data.createdBy == resource.data.createdBy);
+
+      allow delete: if isAdmin();
+    }
+
+    // ───── Kanban state per order ─────────────────────────────────
+    // Kanban docs don't carry createdBy themselves, so we look up the
+    // matching porosite_index doc to check ownership.  Partners get
+    // read+write on kanban for their OWN orders — the saveOrderToStorage
+    // auto-revert path calls persistKanbanForOrder when a perfunduar
+    // order is structurally edited, so writes have to be allowed.
+    match /kanban/{orderId} {
+      function ownerOfOrder() {
+        return get(/databases/$(database)/documents/porosite_index/$(orderId)).data.createdBy;
+      }
+      allow read, write: if isAdmin()
+        || (isKnownPartner()
+            && exists(/databases/$(database)/documents/porosite_index/$(orderId))
+            && ownerOfOrder() == partnerKlientId());
+    }
+
+    // ───── Counters (sequential ID allocators) ────────────────────
+    // Both roles need read/write to allocate IDs for new orders and
+    // klients.  Worst-case abuse is bumping a counter (annoying, not a
+    // data leak); we accept this in exchange for simplicity.
+    match /counters/{counterId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // ───── Default deny ───────────────────────────────────────────
+    // Anything not matched above (including new collections we haven't
+    // accounted for yet) is denied outright.  Fail-closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

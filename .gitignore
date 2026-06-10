@@ -1,0 +1,12 @@
+# Dependencies — restored with `npm install` inside functions/
+functions/node_modules/
+
+# Firebase CLI local state
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+*.log
+
+# OS noise
+Thumbs.db
+.DS_Store

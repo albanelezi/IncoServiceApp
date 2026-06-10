@@ -8,6 +8,10 @@
       "functions/**",
       "bundle-worker.js",
       "optimizer-worker.js",
+      "optimizer-worker.min.js",
+      "optimizer-worker.obf.js",
+      "INCO_Furniture_v12.src.html",
+      "firestore.rules",
       "README.md",
       "*.zip",
       "*.bak",
@@ -31,5 +35,8 @@
         "verify-*.js"
       ]
     }
-  ]
+  ],
+  "firestore": {
+    "rules": "firestore.rules"
+  }
 }

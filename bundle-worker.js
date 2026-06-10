@@ -143,3 +143,92 @@ try {
 const out = path.join(__dirname, 'optimizer-worker.js');
 fs.writeFileSync(out, bundle);
 console.log(`Wrote ${out} (${(bundle.length/1024).toFixed(1)} KB, ${bundle.split('\n').length} lines)`);
+
+// ─── 5. Minify with Terser ─────────────────────────────────────────────
+// Produces optimizer-worker.min.js for embedding in the HTML.  We keep
+// the un-minified copy too because:
+//   * Easier to inspect / diff when iterating on the algorithm.
+//   * Stack traces from the worker are readable in dev (the minified
+//     copy is only embedded in production builds).
+// Terser settings:
+//   * compress.passes:2 — squeezes a bit more out of dead-code paths.
+//   * mangle.toplevel:true — shortens top-level function names (we don't
+//     reference them from outside the worker — the only entry is the
+//     self.onmessage handler at the bottom — so this is safe).
+//   * keepFnames:false — algorithms run in a hot loop; no debug names.
+// Output goes to optimizer-worker.min.js.
+const { execFileSync } = require('child_process');
+const minOut = path.join(__dirname, 'optimizer-worker.min.js');
+try {
+  execFileSync('npx', [
+    '--yes', 'terser',
+    out,
+    '--compress', 'passes=2',
+    '--mangle', 'toplevel=true',
+    '--format', 'comments=false',
+    '--output', minOut,
+  ], { stdio: ['ignore', 'inherit', 'inherit'], shell: process.platform === 'win32' });
+  const minSize = fs.statSync(minOut).size;
+  console.log(`Wrote ${minOut} (${(minSize/1024).toFixed(1)} KB, ` +
+              `${(100 - 100 * minSize / bundle.length).toFixed(1)}% smaller)`);
+} catch (e) {
+  console.error('Terser minification failed:', e.message);
+  console.error('  optimizer-worker.min.js was NOT written.');
+  console.error('  Install Terser globally (npm i -g terser) or accept the un-minified bundle.');
+  process.exit(1);
+}
+
+// ─── 6. Obfuscate with javascript-obfuscator ───────────────────────────
+// Runs ON TOP OF the Terser output so we start from the most compact code
+// possible.  Output goes to optimizer-worker.obf.js, which is what the
+// installer prefers when present.
+//
+// Settings rationale (perf-tuned for a hot-loop algorithm — the strip
+// packer does millions of property accesses; we removed the obfuscator
+// options that would tax that hot path):
+//   * stringArray + threshold 0.75 — strings still moved into an indexed
+//     array (no `"typeId"`-style literal grepping), but
+//   * stringArrayEncoding: NONE — strings are NOT base64-encoded.  Decoding
+//     on every property access added 10-20% runtime; we lose only mild
+//     readability friction since the array is still randomized.
+//   * splitStrings: false — no runtime string-concat overhead.  Saved
+//     5-10% per call.
+//   * identifierNamesGenerator: 'hexadecimal' — `_0x4a2f`-style names.
+//   * selfDefending: false — the tamper-check fires on every function
+//     entry and cost 10-15% in this kernel.  Anyone who deliberately
+//     reformats already beats it; it's near-zero protection.
+//   * disableConsoleOutput — replaces console.* with no-ops.  Free win
+//     (and the reverse-engineer loses the optimizer's timing breadcrumbs).
+//   * NO controlFlowFlattening — would cost 30-50% runtime.
+//   * NO deadCodeInjection — bloats the file with marginal protection.
+//   * NO debugProtection — would break the operator's own devtools.
+const obfOut = path.join(__dirname, 'optimizer-worker.obf.js');
+try {
+  execFileSync('npx', [
+    '--yes', 'javascript-obfuscator',
+    minOut,
+    '--output', obfOut,
+    '--compact', 'true',
+    '--string-array', 'true',
+    '--string-array-encoding', 'none',
+    '--string-array-threshold', '0.75',
+    '--split-strings', 'false',
+    '--identifier-names-generator', 'hexadecimal',
+    '--self-defending', 'false',
+    '--disable-console-output', 'true',
+    '--control-flow-flattening', 'false',
+    '--dead-code-injection', 'false',
+    '--debug-protection', 'false',
+    '--unicode-escape-sequence', 'false',
+    '--transform-object-keys', 'false',
+    '--rename-globals', 'false',
+  ], { stdio: ['ignore', 'inherit', 'inherit'], shell: process.platform === 'win32' });
+  const obfSize = fs.statSync(obfOut).size;
+  console.log(`Wrote ${obfOut} (${(obfSize/1024).toFixed(1)} KB, ` +
+              `${(obfSize / bundle.length).toFixed(2)}x un-minified, ` +
+              `${(obfSize / fs.statSync(minOut).size).toFixed(2)}x Terser-minified)`);
+} catch (e) {
+  console.error('javascript-obfuscator failed:', e.message);
+  console.error('  optimizer-worker.obf.js was NOT written; installer will fall back to minified.');
+  // Non-fatal: the installer prefers .obf.js but falls back to .min.js.
+}
