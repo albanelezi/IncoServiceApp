@@ -15,10 +15,11 @@ function extract(startMarker, endMarker) {
 const code =
   extract('function _buildImportQueueForGroup', 'function _buildImportQueueForBlock') +
   extract('function _buildImportQueueForBlock', '// Per-block label-printing gate') +
+  extract('function _fixupManualSubLabels', 'function _stripLabelRefsIfDisabled') +
   extract('function _injectCodesIntoTxt', 'function _meGenFileContent');
 
 const makeFns = new Function('document', 'blocks', 'loadPrices',
-  code + '\nreturn { _buildImportQueueForGroup, _buildImportQueueForBlock, _injectCodesIntoTxt };');
+  code + '\nreturn { _buildImportQueueForGroup, _buildImportQueueForBlock, _injectCodesIntoTxt, _fixupManualSubLabels };');
 
 // ── Shared stubs ─────────────────────────────────────────────────────
 const docStub = {
@@ -171,6 +172,35 @@ function expectEq(label, actual, expected) {
   console.log('Scenario 4 — mixed order stays legacy:');
   expectEq('line 1', dati[0],
     '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Rafte,1200,900,18,,');
+}
+
+// ── Scenario 5: export-time "#—-N" fixup (optimize-before-save case) ──
+{
+  const baked = [
+    '[Dati]',
+    'NumeroDati=3',
+    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,,444,444,16,123,#—-1,',
+    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,,555,555,16,9999,#—-2,',
+    '3=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B',
+  ].join('\r\n');
+  const fns = makeFns(docStub, [], pricesStub);          // nr-fatura = '119'
+  const fixed = fns._fixupManualSubLabels(baked).split('\r\n');
+  console.log('Scenario 5 — export-time fatura fixup:');
+  expectEq('placeholder #—-1 → #119-1', fixed[2],
+    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,,444,444,16,123,#119-1,');
+  expectEq('placeholder #—-2 → #119-2', fixed[3],
+    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,,555,555,16,9999,#119-2,');
+  expectEq('PDF line untouched', fixed[4],
+    '3=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B');
+
+  // Already-correct labels stay; empty fatura input = no-op.
+  const good = '5=,,1,CuttElab,X,,M,,10,10,16,d,#127-3,';
+  expectEq('already-correct label unchanged', fns._fixupManualSubLabels(good), good);
+  const noFatura = {
+    getElementById: (id) => id === 'nr-fatura' ? { value: '' } : { value: 'K' },
+  };
+  const fns2 = makeFns(noFatura, [], pricesStub);
+  expectEq('no fatura yet → unchanged', fns2._fixupManualSubLabels(baked), baked);
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);

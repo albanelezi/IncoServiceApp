@@ -11794,6 +11794,26 @@ function _buildImportQueueForBlock(block) {
 //   re-optimize, no re-edit pass.  This helper runs at every export site
 //   (downloadFile, _collectWincutFiles) and is a single regex pass, so the
 //   toggle is effectively free.
+// Export-time repair for manual-format [Dati] sub-labels baked BEFORE the
+// order's fatura existed.  Optimization (which bakes p.content, including
+// the "#fatura-N" field-10 badge) usually runs before the first save — and
+// the fatura is only allocated server-side AT save — so a brand-new order
+// bakes "#—-N" placeholders.  Every txt export happens after a save (or on
+// an already-saved order), when #nr-fatura is populated, so this rewrites
+// the placeholder with the real number at the moment the file leaves the
+// app.  PDF-layout lines never contain the pattern (their field 10 is the
+// back-code and they have no trailing comma), so running this on any
+// content is safe.  Older saved orders that baked "#—-N" before this fix
+// are repaired by the same pass on their next download.
+function _fixupManualSubLabels(content) {
+  if (!content) return content;
+  const fatura = (document.getElementById('nr-fatura')?.value || '').trim();
+  if (!fatura) return content;
+  return content.replace(
+    /^(\d+=,,1,CuttElab,[^\r\n]*),#—-(\d+),(?=\r?$)/gm,
+    `$1,#${fatura}-$2,`);
+}
+
 function _stripLabelRefsIfDisabled(content, block) {
   if (!block || block.printLabels !== false) return content;
   if (!content) return content;
@@ -13750,9 +13770,11 @@ function downloadFile(bid, idx) {
   }
   const p = b.panels[idx];
   const dispatch = (content, suffix) => {
-    // Apply the per-block "Printo Etiketat" toggle: when off, blanks all
-    // [Riferimenti] references so WinCut prints no labels for this material.
-    const out = _stripLabelRefsIfDisabled(content, b);
+    // Repair "#—-N" sub-label placeholders (baked before the first save
+    // allocated a fatura), then apply the per-block "Printo Etiketat"
+    // toggle: when off, blanks all [Riferimenti] references so WinCut
+    // prints no labels for this material.
+    const out = _stripLabelRefsIfDisabled(_fixupManualSubLabels(content), b);
     const blob = new Blob([out], { type: 'text/plain' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -13838,8 +13860,10 @@ function _collectWincutFiles(klienti, fatura) {
     // when the operator clicked download from the second sibling.
     const fileBase = (b.name || '').replace(/ \(\d+\)$/, '');
     // "Printo Etiketat" is per-block but synced across the group, so any
-    // sibling's printLabels reflects the group's setting.
-    const strip = (c) => _stripLabelRefsIfDisabled(c, b);
+    // sibling's printLabels reflects the group's setting.  The sub-label
+    // fixup runs first — shkarkoWincut saves before collecting, so the
+    // fatura is guaranteed allocated by now.
+    const strip = (c) => _stripLabelRefsIfDisabled(_fixupManualSubLabels(c), b);
     b.panels.forEach((p, pi) => {
       const idx  = String(pi + 1).padStart(2, '0');
       const base = `${klienti}_${fatura}-${subNosStr}_${fileBase}_${idx}`;
