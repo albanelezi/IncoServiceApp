@@ -11703,8 +11703,17 @@ function _meAssertWincutRowsValid(rows, ctx) {
 function _buildImportQueueForGroup(siblingBlocks) {
   const queue = new Map();
   if (!Array.isArray(siblingBlocks)) return queue;
+  // Per-block "#fatura-N" sub-number — the same value the block header
+  // badge shows (see _refreshBlockSubNumbers). Carried on every queue
+  // entry so the MANUAL-order [Dati] format can stamp field 10 with the
+  // material-section number each piece came from (sibling groups share
+  // one .txt, so per-entry is the only correct granularity).
+  const _qFatura = (document.getElementById('nr-fatura')?.value || '').trim();
   for (const block of siblingBlocks) {
     if (!block || !Array.isArray(block.rows)) continue;
+    const _qPos = (typeof blocks !== 'undefined' && Array.isArray(blocks))
+      ? blocks.indexOf(block) + 1 : 0;
+    const _qSubLabel = _qPos > 0 ? ('#' + (_qFatura || '—') + '-' + _qPos) : '';
     for (const r of block.rows) {
       const l = parseFloat(r.l) || 0;
       const g = parseFloat(r.g) || 0;
@@ -11716,6 +11725,7 @@ function _buildImportQueueForGroup(siblingBlocks) {
         codeBack: ((r._importCodeBack   || '') + '').trim(),
         caseNum:  ((r._importCaseNumber || '') + '').trim(),
         job:      ((r._importJob        || block._importJob || '') + '').trim(),
+        subLabel: _qSubLabel,
       };
       const k1 = Math.round(l) + 'x' + Math.round(g);
       const k2 = Math.round(g) + 'x' + Math.round(l);
@@ -11734,6 +11744,13 @@ function _buildImportQueueForGroup(siblingBlocks) {
 function _buildImportQueueForBlock(block) {
   const queue = new Map();
   if (!block || !Array.isArray(block.rows)) return queue;
+  // Same "#fatura-N" sub-number stamp as _buildImportQueueForGroup — see
+  // the comment there. Single-block contexts (manual editor) still need
+  // it for the manual-order [Dati] field 10.
+  const _qFatura = (document.getElementById('nr-fatura')?.value || '').trim();
+  const _qPos = (typeof blocks !== 'undefined' && Array.isArray(blocks))
+    ? blocks.indexOf(block) + 1 : 0;
+  const _qSubLabel = _qPos > 0 ? ('#' + (_qFatura || '—') + '-' + _qPos) : '';
   for (const r of block.rows) {
     const l = parseFloat(r.l) || 0;
     const g = parseFloat(r.g) || 0;
@@ -11749,6 +11766,7 @@ function _buildImportQueueForBlock(block) {
       // operator sees the SAME title as the source PDF instead of our
       // internal klient/fatura combo.
       job:      ((r._importJob        || '') + '').trim(),
+      subLabel: _qSubLabel,
     };
     const k1 = Math.round(l) + 'x' + Math.round(g);
     const k2 = Math.round(g) + 'x' + Math.round(l);
@@ -11895,12 +11913,36 @@ function _injectCodesIntoTxt(content, block, importQueue) {
   // the importQueue FIFO so case numbers come out in import order and are
   // never re-used across panels of the same block.
   //
-  // Final per-line format (one label per line):
+  // Final per-line format (one label per line) — TWO variants:
+  //
+  //  PDF-imported orders (unchanged legacy layout):
   //   N=,,1,CuttElab,<project>,<case>,<material>,<part>,<L>,<W>,<T>,<front>,<back>
+  //
+  //  MANUALLY-created orders (operator request, 2026-06): field 5 stays
+  //  empty, the description moves to field 9, and field 10 carries the
+  //  material-section number ("#fatura-N", the block-header badge) so the
+  //  saw label can distinguish every sub-section of the material:
+  //   N=,,1,CuttElab,<project>,<case>,<material>,,<L>,<W>,<T>,<part>,<#fatura-N>,
+  //
+  //  An order counts as PDF-imported when ANY of its blocks/rows carries
+  //  PDF-import markers — mixed orders keep the PDF layout everywhere so
+  //  the operator sees one consistent label format per order.  On any
+  //  detection error we fail toward the legacy layout (never disturb the
+  //  PDF flow — explicit user requirement).
   //
   // We also remap [Riferimenti] indices: an old (K) reference now points
   // to the FIRST expanded line of type K (which has the right dimensions
   // for the cut planner, even if the per-piece label data differs).
+  let _isPdfOrder = false;
+  try {
+    const _allBlocks = (typeof blocks !== 'undefined' && Array.isArray(blocks) && blocks.length)
+      ? blocks : [block];
+    _isPdfOrder = _allBlocks.some(b => b && (
+      ((b._importJob || '') + '').trim() !== '' ||
+      (Array.isArray(b.rows) && b.rows.some(r => r && (
+        r._importCode || r._importPart || r._importCaseNumber || r._importJob)))
+    ));
+  } catch (e) { _isPdfOrder = true; }
 
   // Locate the [Dati] section boundaries.
   let datiStart = -1, datiEnd = lines.length;
@@ -11945,18 +11987,40 @@ function _injectCodesIntoTxt(content, block, importQueue) {
       // If the row was NOT imported from a PDF (manual entry), fall back
       // to klient/fatura so the field is never empty for typed orders.
       const pieceProject = hit.job || projectFallback;
-      expandedLines.push(
-        nextIdx + '=,,1,CuttElab,'
-        + pieceProject + ','
-        + hit.caseNum + ','
-        + materialText + ','
-        + hit.desc + ','
-        + wInt + ','
-        + hInt + ','
-        + tInt + ','
-        + hit.code + ','
-        + hit.codeBack
-      );
+      if (_isPdfOrder) {
+        // PDF layout — byte-identical to the historical format.
+        expandedLines.push(
+          nextIdx + '=,,1,CuttElab,'
+          + pieceProject + ','
+          + hit.caseNum + ','
+          + materialText + ','
+          + hit.desc + ','
+          + wInt + ','
+          + hInt + ','
+          + tInt + ','
+          + hit.code + ','
+          + hit.codeBack
+        );
+      } else {
+        // Manual layout — field 5 empty, description in field 9, section
+        // badge in field 10, one trailing empty field.  Commas inside the
+        // operator-typed description are stripped: a comma would shift
+        // every later field by one slot and corrupt the label columns
+        // (e.g. "Pasqyre, patura..." put "patura..." into the L column).
+        const descClean = (hit.desc || '').replace(/,/g, '');
+        expandedLines.push(
+          nextIdx + '=,,1,CuttElab,'
+          + pieceProject + ','
+          + hit.caseNum + ','
+          + materialText + ','
+          + ','
+          + wInt + ','
+          + hInt + ','
+          + tInt + ','
+          + descClean + ','
+          + (hit.subLabel || '') + ','
+        );
+      }
     }
   }
 
