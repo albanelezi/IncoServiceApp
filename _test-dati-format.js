@@ -84,6 +84,9 @@ function expectEq(label, actual, expected) {
   }
 }
 
+// Unified format (field 11 = "#fatura-N", last field, no trailing comma):
+//   ,,1,CuttElab,<project>,<case>,<material>,<desc>,<W>,<H>,<T>,<front>,<back>,<#fatura-N>
+
 // ── Scenario 1: MANUAL order (komente only, comma inside one koment) ──
 {
   const blockA = {
@@ -99,13 +102,13 @@ function expectEq(label, actual, expected) {
   const queue = fns._buildImportQueueForGroup([blockA]);
   const out = fns._injectCodesIntoTxt(RAW, blockA, queue);
   const dati = getDati(out);
-  console.log('Scenario 1 — manual order:');
+  console.log('Scenario 1 — manual order (unified, comma stripped):');
   expectEq('line 1', dati[0],
-    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,1200,900,18,Pasqyre patura e pasqyres mbrapa,#119-1,');
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Pasqyre patura e pasqyres mbrapa,1200,900,18,,,#119-1');
   expectEq('line 2', dati[1],
-    '2=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,1200,900,18,Pasqyre patura e pasqyres mbrapa,#119-1,');
+    '2=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Pasqyre patura e pasqyres mbrapa,1200,900,18,,,#119-1');
   expectEq('line 3', dati[2],
-    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,412,180,18,Gola inkaso,#119-1,');
+    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Gola inkaso,412,180,18,,,#119-1');
 }
 
 // ── Scenario 2: manual order, block at position 2 → "#119-2" ─────────
@@ -123,12 +126,12 @@ function expectEq(label, actual, expected) {
   const dati = getDati(out);
   console.log('Scenario 2 — manual, second section:');
   expectEq('line 1', dati[0],
-    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,1200,900,18,Rafte,#119-2,');
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Rafte,1200,900,18,,,#119-2');
   expectEq('line 3 (empty koment)', dati[2],
-    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,412,180,18,,#119-2,');
+    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,412,180,18,,,#119-2');
 }
 
-// ── Scenario 3: PDF order — byte-identical legacy layout ─────────────
+// ── Scenario 3: PDF order — same unified layout + field 11 ───────────
 {
   const blockA = {
     id: 1, materialId: 'm1', formatId: 'f1', _importJob: 'flavio vali/KZH',
@@ -146,32 +149,34 @@ function expectEq(label, actual, expected) {
   const queue = fns._buildImportQueueForGroup([blockA]);
   const out = fns._injectCodesIntoTxt(RAW, blockA, queue);
   const dati = getDati(out);
-  console.log('Scenario 3 — PDF order (legacy layout, untouched):');
+  console.log('Scenario 3 — PDF order (unified + field 11):');
   expectEq('line 1', dati[0],
-    '1=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B');
-  expectEq('line 3', dati[2],
-    '3=,,1,CuttElab,flavio vali/KZH,8,MDF Bardhe Shqeto 18mm,Shelf,412,180,18,C9,');
+    '1=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1');
+  expectEq('line 3 (empty back barcode)', dati[2],
+    '3=,,1,CuttElab,flavio vali/KZH,8,MDF Bardhe Shqeto 18mm,Shelf,412,180,18,C9,,#119-1');
 }
 
-// ── Scenario 4: MIXED order (one PDF row anywhere) → legacy everywhere ─
+// ── Scenario 4: PDF desc WITH a comma → stripped, field 11 stays last ─
 {
-  const pdfBlock = {
-    id: 5, materialId: 'm1', formatId: 'f1',
-    rows: [ { l: '600', g: '300', s: '1', _importPart: 'X', _importCaseNumber: '1' } ],
+  const blockA = {
+    id: 1, materialId: 'm1', formatId: 'f1', _importJob: 'flavio vali/KZH',
+    rows: [
+      { l: '1200', g: '900', s: '2', koment: '',
+        _importPart: 'Side, Panel', _importCode: 'C1', _importCodeBack: 'C1B',
+        _importCaseNumber: '7', _importJob: 'flavio vali/KZH' },
+      { l: '412', g: '180', s: '1', koment: '',
+        _importPart: 'Shelf', _importCode: 'C9', _importCodeBack: 'C9B',
+        _importCaseNumber: '8', _importJob: 'flavio vali/KZH' },
+    ],
   };
-  const manualBlock = {
-    id: 1, materialId: 'm1', formatId: 'f1',
-    rows: [ { l: '1200', g: '900', s: '2', koment: 'Rafte' },
-            { l: '412',  g: '180', s: '1', koment: 'Gola' } ],
-  };
-  const blocks = [manualBlock, pdfBlock];
+  const blocks = [blockA];
   const fns = makeFns(docStub, blocks, pricesStub);
-  const queue = fns._buildImportQueueForGroup([manualBlock]);
-  const out = fns._injectCodesIntoTxt(RAW, manualBlock, queue);
+  const queue = fns._buildImportQueueForGroup([blockA]);
+  const out = fns._injectCodesIntoTxt(RAW, blockA, queue);
   const dati = getDati(out);
-  console.log('Scenario 4 — mixed order stays legacy:');
-  expectEq('line 1', dati[0],
-    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Rafte,1200,900,18,,');
+  console.log('Scenario 4 — comma in PDF desc is stripped:');
+  expectEq('comma stripped, 13 fields', dati[0],
+    '1=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1');
 }
 
 // ── Scenario 5: export-time "#—-N" fixup (optimize-before-save case) ──
@@ -179,23 +184,25 @@ function expectEq(label, actual, expected) {
   const baked = [
     '[Dati]',
     'NumeroDati=3',
-    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,,444,444,16,123,#—-1,',
-    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,,555,555,16,9999,#—-2,',
-    '3=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B',
+    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#—-1',
+    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#—-2',
+    '3=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1',
   ].join('\r\n');
   const fns = makeFns(docStub, [], pricesStub);          // nr-fatura = '119'
   const fixed = fns._fixupManualSubLabels(baked).split('\r\n');
-  console.log('Scenario 5 — export-time fatura fixup:');
+  console.log('Scenario 5 — export-time fatura fixup (field 11):');
   expectEq('placeholder #—-1 → #119-1', fixed[2],
-    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,,444,444,16,123,#119-1,');
+    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#119-1');
   expectEq('placeholder #—-2 → #119-2', fixed[3],
-    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,,555,555,16,9999,#119-2,');
-  expectEq('PDF line untouched', fixed[4],
-    '3=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B');
+    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#119-2');
+  expectEq('already-correct line untouched', fixed[4],
+    '3=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1');
 
-  // Already-correct labels stay; empty fatura input = no-op.
-  const good = '5=,,1,CuttElab,X,,M,,10,10,16,d,#127-3,';
-  expectEq('already-correct label unchanged', fns._fixupManualSubLabels(good), good);
+  // CRLF preserved through the fixup (no \r leak / loss).
+  expectEq('CRLF line count preserved',
+    String(fns._fixupManualSubLabels(baked).split('\r\n').length), '5');
+
+  // Empty fatura input = no-op.
   const noFatura = {
     getElementById: (id) => id === 'nr-fatura' ? { value: '' } : { value: 'K' },
   };

@@ -11794,24 +11794,26 @@ function _buildImportQueueForBlock(block) {
 //   re-optimize, no re-edit pass.  This helper runs at every export site
 //   (downloadFile, _collectWincutFiles) and is a single regex pass, so the
 //   toggle is effectively free.
-// Export-time repair for manual-format [Dati] sub-labels baked BEFORE the
-// order's fatura existed.  Optimization (which bakes p.content, including
-// the "#fatura-N" field-10 badge) usually runs before the first save — and
-// the fatura is only allocated server-side AT save — so a brand-new order
-// bakes "#—-N" placeholders.  Every txt export happens after a save (or on
-// an already-saved order), when #nr-fatura is populated, so this rewrites
-// the placeholder with the real number at the moment the file leaves the
-// app.  PDF-layout lines never contain the pattern (their field 10 is the
-// back-code and they have no trailing comma), so running this on any
-// content is safe.  Older saved orders that baked "#—-N" before this fix
-// are repaired by the same pass on their next download.
+// Export-time repair for the trailing field-11 "#fatura-N" badge baked
+// BEFORE the order's fatura existed.  Optimization (which bakes p.content,
+// including field 11) usually runs before the first save — and the fatura
+// is only allocated server-side AT save — so a brand-new order bakes a
+// "#—-N" placeholder at the end of every [Dati] line.  Every txt export
+// happens after a save (or on an already-saved order), when #nr-fatura is
+// populated, so this rewrites the placeholder with the real number at the
+// moment the file leaves the app.  Field 11 is the LAST field on the line
+// (no trailing comma); a fully-populated badge ("#107-1") never matches
+// the "#—-" pattern, so running this on any content is safe.  Older saved
+// orders that baked "#—-N" before their fatura existed are repaired by the
+// same pass on their next download.  Applies to BOTH manual and PDF orders
+// since the label format is now unified.
 function _fixupManualSubLabels(content) {
   if (!content) return content;
   const fatura = (document.getElementById('nr-fatura')?.value || '').trim();
   if (!fatura) return content;
   return content.replace(
-    /^(\d+=,,1,CuttElab,[^\r\n]*),#—-(\d+),(?=\r?$)/gm,
-    `$1,#${fatura}-$2,`);
+    /^(\d+=,,1,CuttElab,[^\r\n]*),#—-(\d+)(\r?)$/gm,
+    `$1,#${fatura}-$2$3`);
 }
 
 function _stripLabelRefsIfDisabled(content, block) {
@@ -11933,36 +11935,36 @@ function _injectCodesIntoTxt(content, block, importQueue) {
   // the importQueue FIFO so case numbers come out in import order and are
   // never re-used across panels of the same block.
   //
-  // Final per-line format (one label per line) — TWO variants:
+  // Final per-line format (one label per line) — UNIFIED for BOTH manual
+  // and PDF orders (operator request, 2026-06):
+  //   N=,,1,CuttElab,<project>,<case>,<material>,<desc>,<W>,<H>,<T>,<front>,<back>,<#fatura-N>
   //
-  //  PDF-imported orders (unchanged legacy layout):
-  //   N=,,1,CuttElab,<project>,<case>,<material>,<part>,<L>,<W>,<T>,<front>,<back>
+  //   field 2  project — PDF: label job title; manual: klient/fatura
+  //   field 3  case    — PDF: from label;      manual: empty
+  //   field 4  material
+  //   field 5  desc    — piece description (koment), both
+  //   field 6-8 W,H,T
+  //   field 9  front   — PDF: front barcode;   manual: empty
+  //   field 10 back    — PDF: back barcode;    manual: empty
+  //   field 11 #N      — invoice-subsection badge ("#fatura-N"), both
   //
-  //  MANUALLY-created orders (operator request, 2026-06): field 5 stays
-  //  empty, the description moves to field 9, and field 10 carries the
-  //  material-section number ("#fatura-N", the block-header badge) so the
-  //  saw label can distinguish every sub-section of the material:
-  //   N=,,1,CuttElab,<project>,<case>,<material>,,<L>,<W>,<T>,<part>,<#fatura-N>,
-  //
-  //  An order counts as PDF-imported when ANY of its blocks/rows carries
-  //  PDF-import markers — mixed orders keep the PDF layout everywhere so
-  //  the operator sees one consistent label format per order.  On any
-  //  detection error we fail toward the legacy layout (never disturb the
-  //  PDF flow — explicit user requirement).
+  // The empty case/barcode fields fall out naturally for manual orders
+  // (their importQueue entries carry '' for those), so ONE emitter serves
+  // both — no PDF-vs-manual branch.
   //
   // We also remap [Riferimenti] indices: an old (K) reference now points
   // to the FIRST expanded line of type K (which has the right dimensions
   // for the cut planner, even if the per-piece label data differs).
-  let _isPdfOrder = false;
-  try {
-    const _allBlocks = (typeof blocks !== 'undefined' && Array.isArray(blocks) && blocks.length)
-      ? blocks : [block];
-    _isPdfOrder = _allBlocks.some(b => b && (
-      ((b._importJob || '') + '').trim() !== '' ||
-      (Array.isArray(b.rows) && b.rows.some(r => r && (
-        r._importCode || r._importPart || r._importCaseNumber || r._importJob)))
-    ));
-  } catch (e) { _isPdfOrder = true; }
+  //
+  // Block-level "#fatura-N" fallback: used when a cut piece has no
+  // importQueue entry (dimension the queue didn't see) so field 11 is
+  // never blank.  Position = this block's slot in the order.
+  const _blockSubLabel = (() => {
+    const f = (document.getElementById('nr-fatura')?.value || '').trim();
+    const pos = (typeof blocks !== 'undefined' && Array.isArray(blocks))
+      ? blocks.indexOf(block) + 1 : 0;
+    return pos > 0 ? ('#' + (f || '—') + '-' + pos) : '';
+  })();
 
   // Locate the [Dati] section boundaries.
   let datiStart = -1, datiEnd = lines.length;
@@ -12002,45 +12004,30 @@ function _injectCodesIntoTxt(content, block, importQueue) {
       nextIdx++;
       const hit = (q && q.length > 0)
         ? q.shift()
-        : { code: '', desc: '', codeBack: '', caseNum: '', job: '' };
+        : { code: '', desc: '', codeBack: '', caseNum: '', job: '', subLabel: _blockSubLabel };
       // Field 2 = per-piece job title from the PDF label (red text).
       // If the row was NOT imported from a PDF (manual entry), fall back
       // to klient/fatura so the field is never empty for typed orders.
       const pieceProject = hit.job || projectFallback;
-      if (_isPdfOrder) {
-        // PDF layout — byte-identical to the historical format.
-        expandedLines.push(
-          nextIdx + '=,,1,CuttElab,'
-          + pieceProject + ','
-          + hit.caseNum + ','
-          + materialText + ','
-          + hit.desc + ','
-          + wInt + ','
-          + hInt + ','
-          + tInt + ','
-          + hit.code + ','
-          + hit.codeBack
-        );
-      } else {
-        // Manual layout — field 5 empty, description in field 9, section
-        // badge in field 10, one trailing empty field.  Commas inside the
-        // operator-typed description are stripped: a comma would shift
-        // every later field by one slot and corrupt the label columns
-        // (e.g. "Pasqyre, patura..." put "patura..." into the L column).
-        const descClean = (hit.desc || '').replace(/,/g, '');
-        expandedLines.push(
-          nextIdx + '=,,1,CuttElab,'
-          + pieceProject + ','
-          + hit.caseNum + ','
-          + materialText + ','
-          + ','
-          + wInt + ','
-          + hInt + ','
-          + tInt + ','
-          + descClean + ','
-          + (hit.subLabel || '') + ','
-        );
-      }
+      // Strip commas from the free-text description: WinCut splits the
+      // line on commas, so a comma in the desc would shift every later
+      // field by one slot — corrupting the new field-11 badge (and the
+      // barcodes). The description is the only free-text field, so this
+      // is the only place a stray comma can appear.
+      const descClean = (hit.desc || '').replace(/,/g, '');
+      expandedLines.push(
+        nextIdx + '=,,1,CuttElab,'
+        + pieceProject + ','
+        + hit.caseNum + ','
+        + materialText + ','
+        + descClean + ','
+        + wInt + ','
+        + hInt + ','
+        + tInt + ','
+        + hit.code + ','
+        + hit.codeBack + ','
+        + (hit.subLabel || _blockSubLabel)
+      );
     }
   }
 
