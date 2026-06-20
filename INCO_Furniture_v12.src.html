@@ -13700,6 +13700,15 @@ async function runOptimizer(bid) {
       vis,
       cuts,
       strips: p.strips,
+      // _rawContent = the pristine optimizer [Dati] (consolidated, before
+      // label injection).  Kept so every label field — especially field 5
+      // (description), which comes from the row koment — can be RE-derived
+      // from the CURRENT rows at export time.  koment is free text that does
+      // NOT trigger a re-optimize (structuralFingerprint excludes it), so a
+      // comment typed or edited after optimize would otherwise never reach
+      // the saw label.  `content` holds the labelled version for immediate
+      // display/preview; _rebakeBlockLabels() refreshes it on download.
+      _rawContent: p.content,
       content: _injectCodesIntoTxt(p.content, b, _importQueue),
       eff: p.eff,
       mode: p.mode,
@@ -13748,6 +13757,42 @@ async function runOptimizer(bid) {
 // ═══════════════════════════════════════════════════════════════
 // FILE DOWNLOAD
 // ═══════════════════════════════════════════════════════════════
+
+// Re-derive every label field on a block's panels from the CURRENT rows,
+// just before export.  The optimizer bakes the labelled [Dati] once (at
+// optimize time) from whatever koment existed then — but koment is free
+// text that does NOT trigger a re-optimize (structuralFingerprint excludes
+// it), so a comment typed or edited afterwards would never reach the saw
+// label without this.  Re-running the injection across ALL of the block's
+// panels with ONE shared import queue keeps field 5 (description) and the
+// per-piece codes/cases in sync with the rows while preserving the cross-
+// panel FIFO order.  Panels with no _rawContent (older saved orders,
+// manual-editor panels) are left untouched — strict no-regression.
+//
+// When comments are unchanged this reproduces the exact bytes the optimize-
+// time injection produced (same raw + same rows + same queue), so PDF orders
+// and already-correct manual orders are unaffected.
+function _rebakeBlockLabels(b) {
+  if (!b || !Array.isArray(b.panels) || b.panels.length === 0) return;
+  let queue;
+  try { queue = _buildImportQueueForGroup(_siblingBlocks(b)); }
+  catch (e) { return; }   // can't rebuild the queue → keep existing content
+  for (const p of b.panels) {
+    if (p && p._rawContent) {
+      try { p.content = _injectCodesIntoTxt(p._rawContent, b, queue); }
+      catch (e) { /* keep existing p.content on any failure */ }
+    }
+    if (p && p._splitInfo && Array.isArray(p._splitInfo.parts)) {
+      for (const part of p._splitInfo.parts) {
+        if (part && part._rawContent) {
+          try { part.content = _injectCodesIntoTxt(part._rawContent, b, queue); }
+          catch (e) { /* keep existing */ }
+        }
+      }
+    }
+  }
+}
+
 function downloadFile(bid, idx) {
   const b = blocks.find(x=>x.id===bid);
   if(!b||!b.panels[idx]) return;
@@ -13755,6 +13800,8 @@ function downloadFile(bid, idx) {
     shellToast('Riopto materialin para se të shkarkosh', 'err');
     return;
   }
+  // Refresh labels from current rows (picks up comments edited after optimize).
+  _rebakeBlockLabels(b);
   const p = b.panels[idx];
   const dispatch = (content, suffix) => {
     // Repair "#—-N" sub-label placeholders (baked before the first save
@@ -13846,6 +13893,9 @@ function _collectWincutFiles(klienti, fatura) {
     // "Melamine 18mm" doesn't accidentally become "Melamine 18mm (2)"
     // when the operator clicked download from the second sibling.
     const fileBase = (b.name || '').replace(/ \(\d+\)$/, '');
+    // Refresh labels from current rows before reading p.content, so a
+    // comment edited after optimize reaches field 5 of every piece.
+    _rebakeBlockLabels(b);
     // "Printo Etiketat" is per-block but synced across the group, so any
     // sibling's printLabels reflects the group's setting.  The sub-label
     // fixup runs first — shkarkoWincut saves before collecting, so the

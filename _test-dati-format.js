@@ -210,5 +210,44 @@ function expectEq(label, actual, expected) {
   expectEq('no fatura yet → unchanged', fns2._fixupManualSubLabels(baked), baked);
 }
 
+// ── Scenario 6: comment added AFTER optimize → re-derived at export ──
+// Reproduces the reported bug: optimize bakes the label while koment is
+// empty (field 5 blank), the operator then types a comment, and export
+// must re-derive field 5 from the now-current rows.  This is exactly what
+// _rebakeBlockLabels does — re-inject from the pristine optimizer content
+// with a queue rebuilt from the current rows.
+{
+  // Step 1: optimize-time bake with EMPTY komente.
+  const blockEmpty = {
+    id: 1, materialId: 'm1', formatId: 'f1',
+    rows: [ { l: '1200', g: '900', s: '2', koment: '' },
+            { l: '412',  g: '180', s: '1', koment: '' } ],
+  };
+  const fns1 = makeFns(docStub, [blockEmpty], pricesStub);
+  const baked = fns1._injectCodesIntoTxt(
+    RAW, blockEmpty, fns1._buildImportQueueForGroup([blockEmpty]));
+  const bakedDati = getDati(baked);
+  console.log('Scenario 6 — comment added after optimize:');
+  expectEq('baked field 5 empty (the bug)', bakedDati[0],
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,1200,900,18,,,#119-1');
+
+  // Step 2: operator types comments; export re-derives from the SAME raw.
+  const blockNow = {
+    id: 1, materialId: 'm1', formatId: 'f1',
+    rows: [ { l: '1200', g: '900', s: '2', koment: 'Anesore' },
+            { l: '412',  g: '180', s: '1', koment: 'Baza' } ],
+  };
+  const fns2 = makeFns(docStub, [blockNow], pricesStub);
+  const rebaked = fns2._injectCodesIntoTxt(
+    RAW, blockNow, fns2._buildImportQueueForGroup([blockNow]));
+  const rebakedDati = getDati(rebaked);
+  expectEq('rebaked line 1 field 5 = koment', rebakedDati[0],
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Anesore,1200,900,18,,,#119-1');
+  expectEq('rebaked line 2 field 5 = koment', rebakedDati[1],
+    '2=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Anesore,1200,900,18,,,#119-1');
+  expectEq('rebaked line 3 field 5 = koment', rebakedDati[2],
+    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Baza,412,180,18,,,#119-1');
+}
+
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
 process.exit(failures ? 1 : 0);
