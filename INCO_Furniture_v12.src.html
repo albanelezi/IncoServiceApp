@@ -12086,19 +12086,72 @@ function _injectCodesIntoTxt(content, block, importQueue) {
       const refM = m[2].match(/^\((\d+)\)$/);
       origRif.push({ oldIdx: parseInt(m[1]), refType: refM ? parseInt(refM[1]) : null });
     }
-    // Walk paired rows. For each (Righe[i], Rif[i]) with rep>1 AND ref=(N),
-    // split into rep rep=1 rows assigned to sequential indices in type N's
+    // Attach each row's reference type (from the parallel [Riferimenti]
+    // line) onto the row itself, so it survives the un-batch pre-pass below
+    // where row↔ref index parity is broken by strip replication.
+    for (let i = 0; i < origRig.length; i++) {
+      origRig[i].refType = (origRif[i] && origRif[i].refType != null)
+        ? origRif[i].refType : null;
+    }
+
+    // ── UN-BATCH IDENTICAL STRIPS ──────────────────────────────────────
+    // rowsX batches N geometrically-identical X-strips into ONE strip-opener
+    // `X,w,N` (rep N) followed by a single body of U-cuts.  The pieces in
+    // those N strips have IDENTICAL dimensions but DISTINCT barcodes (the
+    // label data differs even when the geometry matches).  Left as `X,w,N`,
+    // the saw replays the SAME body references for every one of the N
+    // strips, so strips 2..N reprint strip 1's barcodes — duplicate labels
+    // that misroute pieces on the line (the reported bug: two pieces carry
+    // r33b0026, while r33b0044 never prints).
+    //
+    // Fix: expand a rep-N opener into N separate strips, each `X,w,1` plus a
+    // fresh copy of the body.  The per-row ref assignment below then hands
+    // EACH replica strip the NEXT sequential references from its piece
+    // type's range — so every physical piece gets its own unique barcode.
+    //
+    // Strip opener = `X` in X-mode (first data row RX), `Y` in Y-mode (RY).
+    // Y openers are always rep 1 today, but the handling is symmetric.  The
+    // leading panel-edge trim row(s) (RX/RY) are not strips — copy verbatim.
+    const _mode = (origRig[0] && origRig[0].type === 'RY') ? 'Y' : 'X';
+    const _openerType = _mode === 'Y' ? 'Y' : 'X';
+    const expandedRig = [];
+    {
+      let si = 0;
+      while (si < origRig.length &&
+             (origRig[si].type === 'RX' || origRig[si].type === 'RY')) {
+        expandedRig.push(origRig[si]); si++;
+      }
+      while (si < origRig.length) {
+        const opener = origRig[si];
+        // Body = every row until the next opener (RU, primary cuts, vBar
+        // groups). vBar/offcut rows are typed U/V/X, never the opener type,
+        // so they never prematurely close the strip.
+        let ei = si + 1;
+        while (ei < origRig.length && origRig[ei].type !== _openerType) ei++;
+        const body = origRig.slice(si + 1, ei);
+        const reps = (opener.type === _openerType && opener.rep > 1) ? opener.rep : 1;
+        for (let k = 0; k < reps; k++) {
+          // When splitting, the opener becomes rep 1 per replica; otherwise
+          // keep its original rep so non-opener / single strips are unchanged.
+          expandedRig.push(reps > 1 ? { ...opener, rep: 1 } : { ...opener });
+          for (const br of body) expandedRig.push({ ...br });
+        }
+        si = ei;
+      }
+    }
+
+    // Walk the (un-batched) rows. For a row WITH a reference AND rep>1,
+    // split into rep rep=1 rows assigned to sequential indices in its type's
     // expanded range. Otherwise keep the row, renumber, and assign one
-    // sequential index when there's still a reference.
+    // sequential index when there's still a reference.  Because the body was
+    // replicated above, each strip's piece-cuts consume the NEXT slice of
+    // their type's range — distinct barcodes across replicas.
     const newRig = [];
     const newRif = [];
     let cur = 0;
-    const pairs = Math.max(origRig.length, origRif.length);
-    for (let i = 0; i < pairs; i++) {
-      const r = origRig[i];
-      const f = origRif[i] || { refType: null };
+    for (const r of expandedRig) {
       if (!r) continue;
-      const range = (f.refType != null) ? typeRanges.get(f.refType) : null;
+      const range = (r.refType != null) ? typeRanges.get(r.refType) : null;
       if (range && r.rep > 1) {
         for (let k = 0; k < r.rep; k++) {
           cur++;

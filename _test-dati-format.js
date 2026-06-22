@@ -249,5 +249,69 @@ function expectEq(label, actual, expected) {
     '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Baza,412,180,18,,,#119-1');
 }
 
+// ── Scenario 7: batched X-strip (rep>1) → unique barcode per piece ───
+// Reproduces the Gjergji Lac 108 bug: the optimizer batches 2 identical
+// 65-wide strips into `X,65,2` with one body of 4 U-cuts.  Before the fix
+// only 4 references were assigned and the 2nd strip reprinted them; after,
+// the opener is un-batched into 2 strips so all 8 pieces get distinct refs.
+{
+  const RAW_XBATCH = [
+    '[Intestazione]',
+    'Descrizione=Komid/Gjergj',
+    'TipoMateriale=Komid/Gjergj_1',
+    'Lunghezza=2800.000000', 'Larghezza=2070.000000', 'Spessore=18.000000',
+    'AltPacco=90.000000', 'VelRotaz=3000', 'VelAvanz=32.000000',
+    '[Righe]', 'NumeroRighe=4',
+    '1=RX,10.000000,1,0.000000,0.000000,0.000000,0.000000',
+    '2=X,65.000000,2,0.000000,0.000000,0.000000,0.000000',   // 2 identical strips
+    '3=RU,10.000000,1,0.000000,0.000000,0.000000,0.000000',
+    '4=U,464.000000,4,0.000000,0.000000,0.000000,0.000000',  // 4 pieces per strip
+    '[Dati]', 'NumeroDati=1',
+    '1=,,8,CuttElab,,8,464.00,65.00,18.00,,0,8',             // 8 pieces, one type
+    '[Riferimenti]', '1=', '2=', '3=', '4=(1)',
+  ].join('\r\n');
+
+  const rows8 = [];
+  for (let n = 1; n <= 8; n++) {
+    rows8.push({ l: '464', g: '65', s: '1', _importPart: 'Toe',
+      _importCodeBack: 'r33b' + String(n).padStart(4, '0'),
+      _importJob: 'Komid/Gjergj' });
+  }
+  const blockX = { id: 1, materialId: 'm1', formatId: 'f1',
+    _importJob: 'Komid/Gjergj', rows: rows8 };
+  const fnsX = makeFns(docStub, [blockX], pricesStub);
+  const outX = fnsX._injectCodesIntoTxt(
+    RAW_XBATCH, blockX, fnsX._buildImportQueueForGroup([blockX]));
+  const linesX = outX.split('\r\n');
+
+  console.log('Scenario 7 — batched X-strip → unique barcode per piece:');
+
+  // (a) The X,65,2 opener is un-batched into two X,65,1 openers.
+  const openers2 = linesX.filter(l => /=X,65\.000000,2,/.test(l)).length;
+  const openers1 = linesX.filter(l => /=X,65\.000000,1,/.test(l)).length;
+  expectEq('no rep-2 X opener remains', String(openers2), '0');
+  expectEq('two rep-1 X openers emitted', String(openers1), '2');
+
+  // (b) [Riferimenti] references all 8 [Dati] entries exactly once.
+  const rifStart = linesX.indexOf('[Riferimenti]');
+  const refs = [];
+  for (let i = rifStart + 1; i < linesX.length; i++) {
+    const m = linesX[i].match(/^\d+=\((\d+)\)$/);
+    if (m) refs.push(parseInt(m[1]));
+  }
+  expectEq('8 references assigned', String(refs.length), '8');
+  expectEq('references are 1..8 each once',
+    refs.slice().sort((a, b) => a - b).join(','), '1,2,3,4,5,6,7,8');
+
+  // (c) The 8 expanded [Dati] lines carry 8 DISTINCT barcodes (field 10).
+  const datiX = getDati(outX);
+  const barcodes = datiX.map(l => l.split(',')[12]);  // field after T,front
+  const uniqueBarcodes = new Set(barcodes);
+  expectEq('8 distinct barcodes in [Dati]', String(uniqueBarcodes.size), '8');
+  expectEq('barcodes are r33b0001..r33b0008',
+    barcodes.slice().sort().join(','),
+    'r33b0001,r33b0002,r33b0003,r33b0004,r33b0005,r33b0006,r33b0007,r33b0008');
+}
+
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
 process.exit(failures ? 1 : 0);
