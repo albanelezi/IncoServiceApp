@@ -11726,6 +11726,15 @@ function _buildImportQueueForGroup(siblingBlocks) {
         caseNum:  ((r._importCaseNumber || '') + '').trim(),
         job:      ((r._importJob        || block._importJob || '') + '').trim(),
         subLabel: _qSubLabel,
+        // Edge-banding ("tenije") line counts: ag = "ana gjate" (banding on
+        // the length/l side), as_ = "ana shkurter" (on the larg/g side),
+        // each 0/1/2.  rowL/rowG carry the row's rounded dims so the emitter
+        // can detect optimizer rotation and keep fields 12/13 aligned with
+        // the printed W/H (fields 6/7).
+        ag:   parseInt(r.ag)  || 0,
+        as_:  parseInt(r.as_) || 0,
+        rowL: Math.round(l),
+        rowG: Math.round(g),
       };
       const k1 = Math.round(l) + 'x' + Math.round(g);
       const k2 = Math.round(g) + 'x' + Math.round(l);
@@ -11767,6 +11776,11 @@ function _buildImportQueueForBlock(block) {
       // internal klient/fatura combo.
       job:      ((r._importJob        || '') + '').trim(),
       subLabel: _qSubLabel,
+      // Edge-banding line counts — see _buildImportQueueForGroup.
+      ag:   parseInt(r.ag)  || 0,
+      as_:  parseInt(r.as_) || 0,
+      rowL: Math.round(l),
+      rowG: Math.round(g),
     };
     const k1 = Math.round(l) + 'x' + Math.round(g);
     const k2 = Math.round(g) + 'x' + Math.round(l);
@@ -11801,19 +11815,23 @@ function _buildImportQueueForBlock(block) {
 // "#—-N" placeholder at the end of every [Dati] line.  Every txt export
 // happens after a save (or on an already-saved order), when #nr-fatura is
 // populated, so this rewrites the placeholder with the real number at the
-// moment the file leaves the app.  Field 11 is the LAST field on the line
-// (no trailing comma); a fully-populated badge ("#107-1") never matches
-// the "#—-" pattern, so running this on any content is safe.  Older saved
-// orders that baked "#—-N" before their fatura existed are repaired by the
-// same pass on their next download.  Applies to BOTH manual and PDF orders
-// since the label format is now unified.
+// moment the file leaves the app.  A fully-populated badge ("#107-1") never
+// matches the "#—-" pattern, so running this on any content is safe.  Older
+// saved orders that baked "#—-N" before their fatura existed are repaired
+// by the same pass on their next download.  Applies to BOTH manual and PDF
+// orders (unified format).
+//
+// The badge sits in field 11, which may be the LAST field (content baked
+// before fields 12/13 existed) OR be followed by ",<bandW>,<bandH>" (current
+// format).  The optional trailing-group capture matches both so the fixup
+// survives that format change.
 function _fixupManualSubLabels(content) {
   if (!content) return content;
   const fatura = (document.getElementById('nr-fatura')?.value || '').trim();
   if (!fatura) return content;
   return content.replace(
-    /^(\d+=,,1,CuttElab,[^\r\n]*),#—-(\d+)(\r?)$/gm,
-    `$1,#${fatura}-$2$3`);
+    /^(\d+=,,1,CuttElab,[^\r\n]*),#—-(\d+)((?:,[^\r\n]*)?)(\r?)$/gm,
+    `$1,#${fatura}-$2$3$4`);
 }
 
 function _stripLabelRefsIfDisabled(content, block) {
@@ -11937,7 +11955,7 @@ function _injectCodesIntoTxt(content, block, importQueue) {
   //
   // Final per-line format (one label per line) — UNIFIED for BOTH manual
   // and PDF orders (operator request, 2026-06):
-  //   N=,,1,CuttElab,<project>,<case>,<material>,<desc>,<W>,<H>,<T>,<front>,<back>,<#fatura-N>
+  //   N=,,1,CuttElab,<project>,<case>,<material>,<desc>,<W>,<H>,<T>,<front>,<back>,<#fatura-N>,<bandW>,<bandH>
   //
   //   field 2  project — PDF: label job title; manual: klient/fatura
   //   field 3  case    — PDF: from label;      manual: empty
@@ -11947,6 +11965,8 @@ function _injectCodesIntoTxt(content, block, importQueue) {
   //   field 9  front   — PDF: front barcode;   manual: empty
   //   field 10 back    — PDF: back barcode;    manual: empty
   //   field 11 #N      — invoice-subsection badge ("#fatura-N"), both
+  //   field 12 bandW   — edge-banding line count on the W dimension (0→'')
+  //   field 13 bandH   — edge-banding line count on the H dimension (0→'')
   //
   // The empty case/barcode fields fall out naturally for manual orders
   // (their importQueue entries carry '' for those), so ONE emitter serves
@@ -12004,17 +12024,33 @@ function _injectCodesIntoTxt(content, block, importQueue) {
       nextIdx++;
       const hit = (q && q.length > 0)
         ? q.shift()
-        : { code: '', desc: '', codeBack: '', caseNum: '', job: '', subLabel: _blockSubLabel };
+        : { code: '', desc: '', codeBack: '', caseNum: '', job: '',
+            subLabel: _blockSubLabel, ag: 0, as_: 0 };
       // Field 2 = per-piece job title from the PDF label (red text).
       // If the row was NOT imported from a PDF (manual entry), fall back
       // to klient/fatura so the field is never empty for typed orders.
       const pieceProject = hit.job || projectFallback;
       // Strip commas from the free-text description: WinCut splits the
       // line on commas, so a comma in the desc would shift every later
-      // field by one slot — corrupting the new field-11 badge (and the
-      // barcodes). The description is the only free-text field, so this
-      // is the only place a stray comma can appear.
+      // field by one slot — corrupting the field-11 badge, barcodes and
+      // the field 12/13 banding counts.  The description is the only
+      // free-text field, so this is the only place a stray comma appears.
       const descClean = (hit.desc || '').replace(/,/g, '');
+      // Fields 12/13 = edge-banding line counts, ALIGNED with the printed
+      // W/H (fields 6/7).  ag is the count on the row's length (l) side,
+      // as_ on the larg (g) side.  The optimizer may rotate a piece, so
+      // when the placed W matches the row's larg (and H its length) the
+      // piece is rotated 90° and the two counts swap to stay paired with
+      // the printed dimensions.  Square pieces (l == g) can't be told
+      // apart, so they keep the natural ag→W / as_→H order.  0 → empty.
+      const _ag = hit.ag || 0, _as = hit.as_ || 0;
+      const _rotated = (hit.rowL != null && hit.rowG != null
+                        && hit.rowL !== hit.rowG
+                        && wInt === hit.rowG && hInt === hit.rowL);
+      const f12n = _rotated ? _as : _ag;   // banding count for field 6 (W)
+      const f13n = _rotated ? _ag : _as;   // banding count for field 7 (H)
+      const f12 = f12n > 0 ? String(f12n) : '';
+      const f13 = f13n > 0 ? String(f13n) : '';
       expandedLines.push(
         nextIdx + '=,,1,CuttElab,'
         + pieceProject + ','
@@ -12026,7 +12062,9 @@ function _injectCodesIntoTxt(content, block, importQueue) {
         + tInt + ','
         + hit.code + ','
         + hit.codeBack + ','
-        + (hit.subLabel || _blockSubLabel)
+        + (hit.subLabel || _blockSubLabel) + ','
+        + f12 + ','
+        + f13
       );
     }
   }

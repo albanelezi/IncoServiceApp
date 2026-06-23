@@ -84,8 +84,9 @@ function expectEq(label, actual, expected) {
   }
 }
 
-// Unified format (field 11 = "#fatura-N", last field, no trailing comma):
-//   ,,1,CuttElab,<project>,<case>,<material>,<desc>,<W>,<H>,<T>,<front>,<back>,<#fatura-N>
+// Unified format (field 11 = "#fatura-N", fields 12/13 = edge-banding line
+// counts aligned with the printed W/H; 0 → empty):
+//   ,,1,CuttElab,<project>,<case>,<material>,<desc>,<W>,<H>,<T>,<front>,<back>,<#fatura-N>,<bandW>,<bandH>
 
 // ── Scenario 1: MANUAL order (komente only, comma inside one koment) ──
 {
@@ -104,11 +105,11 @@ function expectEq(label, actual, expected) {
   const dati = getDati(out);
   console.log('Scenario 1 — manual order (unified, comma stripped):');
   expectEq('line 1', dati[0],
-    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Pasqyre patura e pasqyres mbrapa,1200,900,18,,,#119-1');
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Pasqyre patura e pasqyres mbrapa,1200,900,18,,,#119-1,,');
   expectEq('line 2', dati[1],
-    '2=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Pasqyre patura e pasqyres mbrapa,1200,900,18,,,#119-1');
+    '2=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Pasqyre patura e pasqyres mbrapa,1200,900,18,,,#119-1,,');
   expectEq('line 3', dati[2],
-    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Gola inkaso,412,180,18,,,#119-1');
+    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Gola inkaso,412,180,18,,,#119-1,,');
 }
 
 // ── Scenario 2: manual order, block at position 2 → "#119-2" ─────────
@@ -126,9 +127,9 @@ function expectEq(label, actual, expected) {
   const dati = getDati(out);
   console.log('Scenario 2 — manual, second section:');
   expectEq('line 1', dati[0],
-    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Rafte,1200,900,18,,,#119-2');
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Rafte,1200,900,18,,,#119-2,,');
   expectEq('line 3 (empty koment)', dati[2],
-    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,412,180,18,,,#119-2');
+    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,412,180,18,,,#119-2,,');
 }
 
 // ── Scenario 3: PDF order — same unified layout + field 11 ───────────
@@ -151,9 +152,9 @@ function expectEq(label, actual, expected) {
   const dati = getDati(out);
   console.log('Scenario 3 — PDF order (unified + field 11):');
   expectEq('line 1', dati[0],
-    '1=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1');
+    '1=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,');
   expectEq('line 3 (empty back barcode)', dati[2],
-    '3=,,1,CuttElab,flavio vali/KZH,8,MDF Bardhe Shqeto 18mm,Shelf,412,180,18,C9,,#119-1');
+    '3=,,1,CuttElab,flavio vali/KZH,8,MDF Bardhe Shqeto 18mm,Shelf,412,180,18,C9,,#119-1,,');
 }
 
 // ── Scenario 4: PDF desc WITH a comma → stripped, field 11 stays last ─
@@ -175,32 +176,37 @@ function expectEq(label, actual, expected) {
   const out = fns._injectCodesIntoTxt(RAW, blockA, queue);
   const dati = getDati(out);
   console.log('Scenario 4 — comma in PDF desc is stripped:');
-  expectEq('comma stripped, 13 fields', dati[0],
-    '1=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1');
+  expectEq('comma stripped, fields intact', dati[0],
+    '1=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,');
 }
 
 // ── Scenario 5: export-time "#—-N" fixup (optimize-before-save case) ──
 {
   const baked = [
     '[Dati]',
-    'NumeroDati=3',
-    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#—-1',
-    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#—-2',
-    '3=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1',
+    'NumeroDati=4',
+    // New format: badge in field 11, followed by ,bandW,bandH.
+    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#—-1,2,1',
+    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#—-2,,',
+    // Old format (frozen before fields 12/13 existed): badge at end of line.
+    '3=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Anesore,300,200,16,,,#—-3',
+    '4=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,',
   ].join('\r\n');
   const fns = makeFns(docStub, [], pricesStub);          // nr-fatura = '119'
   const fixed = fns._fixupManualSubLabels(baked).split('\r\n');
   console.log('Scenario 5 — export-time fatura fixup (field 11):');
-  expectEq('placeholder #—-1 → #119-1', fixed[2],
-    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#119-1');
-  expectEq('placeholder #—-2 → #119-2', fixed[3],
-    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#119-2');
-  expectEq('already-correct line untouched', fixed[4],
-    '3=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1');
+  expectEq('new-format #—-1 → #119-1, bands kept', fixed[2],
+    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#119-1,2,1');
+  expectEq('new-format #—-2 → #119-2, empty bands kept', fixed[3],
+    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#119-2,,');
+  expectEq('old-format (badge at EOL) #—-3 → #119-3', fixed[4],
+    '3=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Anesore,300,200,16,,,#119-3');
+  expectEq('already-correct line untouched', fixed[5],
+    '4=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,');
 
   // CRLF preserved through the fixup (no \r leak / loss).
   expectEq('CRLF line count preserved',
-    String(fns._fixupManualSubLabels(baked).split('\r\n').length), '5');
+    String(fns._fixupManualSubLabels(baked).split('\r\n').length), '6');
 
   // Empty fatura input = no-op.
   const noFatura = {
@@ -229,7 +235,7 @@ function expectEq(label, actual, expected) {
   const bakedDati = getDati(baked);
   console.log('Scenario 6 — comment added after optimize:');
   expectEq('baked field 5 empty (the bug)', bakedDati[0],
-    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,1200,900,18,,,#119-1');
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,1200,900,18,,,#119-1,,');
 
   // Step 2: operator types comments; export re-derives from the SAME raw.
   const blockNow = {
@@ -242,11 +248,11 @@ function expectEq(label, actual, expected) {
     RAW, blockNow, fns2._buildImportQueueForGroup([blockNow]));
   const rebakedDati = getDati(rebaked);
   expectEq('rebaked line 1 field 5 = koment', rebakedDati[0],
-    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Anesore,1200,900,18,,,#119-1');
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Anesore,1200,900,18,,,#119-1,,');
   expectEq('rebaked line 2 field 5 = koment', rebakedDati[1],
-    '2=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Anesore,1200,900,18,,,#119-1');
+    '2=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Anesore,1200,900,18,,,#119-1,,');
   expectEq('rebaked line 3 field 5 = koment', rebakedDati[2],
-    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Baza,412,180,18,,,#119-1');
+    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Baza,412,180,18,,,#119-1,,');
 }
 
 // ── Scenario 7: batched X-strip (rep>1) → unique barcode per piece ───
@@ -311,6 +317,60 @@ function expectEq(label, actual, expected) {
   expectEq('barcodes are r33b0001..r33b0008',
     barcodes.slice().sort().join(','),
     'r33b0001,r33b0002,r33b0003,r33b0004,r33b0005,r33b0006,r33b0007,r33b0008');
+}
+
+// ── Scenario 8: fields 12/13 = edge-banding counts, aligned to W/H ───
+// ag ("ana gjate") = banding on the length(l) side, as_ ("ana shkurter")
+// = banding on the larg(g) side.  Fields 12/13 must align with the PRINTED
+// W/H (fields 6/7): when the optimizer rotates a piece (placed W == row's
+// larg), the two counts swap.  0 → empty.
+{
+  // Minimal single-piece RAW with a chosen placed orientation (pw × ph).
+  const rawOne = (pw, ph) => [
+    '[Intestazione]', 'Descrizione=X', 'TipoMateriale=X_1',
+    'Lunghezza=2800.000000', 'Larghezza=2070.000000', 'Spessore=18.000000',
+    'AltPacco=90.000000', 'VelRotaz=3000', 'VelAvanz=32.000000',
+    '[Righe]', 'NumeroRighe=4',
+    '1=RX,10.000000,1,0.000000,0.000000,0.000000,0.000000',
+    `2=X,${pw}.000000,1,0.000000,0.000000,0.000000,0.000000`,
+    '3=RU,10.000000,1,0.000000,0.000000,0.000000,0.000000',
+    `4=U,${ph}.000000,1,0.000000,0.000000,0.000000,0.000000`,
+    '[Dati]', 'NumeroDati=1',
+    `1=,,1,CuttElab,,1,${pw}.00,${ph}.00,18.00,,0,1`,
+    '[Riferimenti]', '1=', '2=', '3=', '4=(1)',
+  ].join('\r\n');
+  const lastTwo = (out) => {
+    const f = getDati(out)[0].split(',');
+    return f[f.length - 2] + '|' + f[f.length - 1];   // bandW|bandH
+  };
+  // Wrap a single row in a block (the row alone has no .rows, which
+  // _injectCodesIntoTxt requires) and inject the chosen placed orientation.
+  const inj = (row, raw) => {
+    const block = { id: 1, materialId: 'm1', formatId: 'f1', rows: [row] };
+    const fns = makeFns(docStub, [block], pricesStub);
+    return fns._injectCodesIntoTxt(raw, block, fns._buildImportQueueForGroup([block]));
+  };
+  console.log('Scenario 8 — edge-banding fields 12/13 (with rotation):');
+
+  // l=1200 (ag=2), g=400 (as_=1).  NOT rotated: W=1200=l → bandW=ag=2, bandH=as_=1.
+  expectEq('not rotated → bandW=ag, bandH=as_',
+    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(1200, 400))), '2|1');
+
+  // ROTATED: placed W=400 (=g), H=1200 (=l) → counts swap: bandW=as_=1, bandH=ag=2.
+  expectEq('rotated 90° → counts swap',
+    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(400, 1200))), '1|2');
+
+  // 0 → empty: ag=1, as_=0, not rotated → bandW=1, bandH=''.
+  expectEq('zero side → empty',
+    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '1', as_: '0' }, rawOne(1200, 400))), '1|');
+
+  // No tenije at all (ag/as_ unset) → both empty.
+  expectEq('no banding → both empty',
+    lastTwo(inj({ l: '1200', g: '400', s: '1' }, rawOne(1200, 400))), '|');
+
+  // Square piece (l==g): can't tell rotation → keep natural ag→W, as_→H.
+  expectEq('square piece → no swap',
+    lastTwo(inj({ l: '500', g: '500', s: '1', ag: '2', as_: '1' }, rawOne(500, 500))), '2|1');
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
