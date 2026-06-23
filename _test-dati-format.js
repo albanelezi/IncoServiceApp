@@ -352,17 +352,18 @@ function expectEq(label, actual, expected) {
   };
   console.log('Scenario 8 — edge-banding fields 12/13 (with rotation):');
 
-  // l=1200 (ag=2), g=400 (as_=1).  NOT rotated: W=1200=l → bandW=ag=2, bandH=as_=1.
+  // Glyphs: 1 → "─" (U+2500), 2 → "═" (U+2550), 0/none → "".
+  // l=1200 (ag=2), g=400 (as_=1).  NOT rotated: W=1200=l → bandW=═, bandH=─.
   expectEq('not rotated → bandW=ag, bandH=as_',
-    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(1200, 400))), '2|1');
+    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(1200, 400))), '═|─');
 
-  // ROTATED: placed W=400 (=g), H=1200 (=l) → counts swap: bandW=as_=1, bandH=ag=2.
+  // ROTATED: placed W=400 (=g), H=1200 (=l) → counts swap: bandW=─, bandH=═.
   expectEq('rotated 90° → counts swap',
-    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(400, 1200))), '1|2');
+    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(400, 1200))), '─|═');
 
-  // 0 → empty: ag=1, as_=0, not rotated → bandW=1, bandH=''.
+  // 0 → empty: ag=1, as_=0, not rotated → bandW=─, bandH=''.
   expectEq('zero side → empty',
-    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '1', as_: '0' }, rawOne(1200, 400))), '1|');
+    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '1', as_: '0' }, rawOne(1200, 400))), '─|');
 
   // No tenije at all (ag/as_ unset) → both empty.
   expectEq('no banding → both empty',
@@ -370,7 +371,7 @@ function expectEq(label, actual, expected) {
 
   // Square piece (l==g): can't tell rotation → keep natural ag→W, as_→H.
   expectEq('square piece → no swap',
-    lastTwo(inj({ l: '500', g: '500', s: '1', ag: '2', as_: '1' }, rawOne(500, 500))), '2|1');
+    lastTwo(inj({ l: '500', g: '500', s: '1', ag: '2', as_: '1' }, rawOne(500, 500))), '═|─');
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);

@@ -11965,8 +11965,8 @@ function _injectCodesIntoTxt(content, block, importQueue) {
   //   field 9  front   — PDF: front barcode;   manual: empty
   //   field 10 back    — PDF: back barcode;    manual: empty
   //   field 11 #N      — invoice-subsection badge ("#fatura-N"), both
-  //   field 12 bandW   — edge-banding line count on the W dimension (0→'')
-  //   field 13 bandH   — edge-banding line count on the H dimension (0→'')
+  //   field 12 bandW   — edge-banding lines on the W dimension: ─ (1), ═ (2), '' (0)
+  //   field 13 bandH   — edge-banding lines on the H dimension: ─ (1), ═ (2), '' (0)
   //
   // The empty case/barcode fields fall out naturally for manual orders
   // (their importQueue entries carry '' for those), so ONE emitter serves
@@ -12049,8 +12049,14 @@ function _injectCodesIntoTxt(content, block, importQueue) {
                         && wInt === hit.rowG && hInt === hit.rowL);
       const f12n = _rotated ? _as : _ag;   // banding count for field 6 (W)
       const f13n = _rotated ? _ag : _as;   // banding count for field 7 (H)
-      const f12 = f12n > 0 ? String(f12n) : '';
-      const f13 = f13n > 0 ? String(f13n) : '';
+      // Render the count as drawn lines so the label shows the banding the
+      // same way the app does: 1 → one line "─" (U+2500), 2 → a double line
+      // "═" (U+2550), 0/none → empty.  NOTE: these are non-ASCII; the file
+      // is emitted UTF-8.  If the label printer/WinCut reads Latin-1 they'll
+      // garble — fall back to ASCII "-"/"=" if a test print shows mojibake.
+      const _bandGlyph = (n) => n === 2 ? '═' : n === 1 ? '─' : '';
+      const f12 = _bandGlyph(f12n);
+      const f13 = _bandGlyph(f13n);
       expandedLines.push(
         nextIdx + '=,,1,CuttElab,'
         + pieceProject + ','
