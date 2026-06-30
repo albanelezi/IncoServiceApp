@@ -319,11 +319,10 @@ function expectEq(label, actual, expected) {
     'r33b0001,r33b0002,r33b0003,r33b0004,r33b0005,r33b0006,r33b0007,r33b0008');
 }
 
-// ── Scenario 8: fields 12/13 = edge-banding counts, aligned to W/H ───
-// ag ("ana gjate") = banding on the length(l) side, as_ ("ana shkurter")
-// = banding on the larg(g) side.  Fields 12/13 must align with the PRINTED
-// W/H (fields 6/7): when the optimizer rotates a piece (placed W == row's
-// larg), the two counts swap.  0 → empty.
+// ── Scenario 8: fields 12/13 = edge-banding, POSITIONAL ──────────────
+// field 12 = Bord Lartësia (ag, the l side), field 13 = Bord Gjerësia
+// (as_, the g side).  Always positional — the mark describes its NAMED
+// dimension regardless of how the optimizer rotates the piece.  0 → empty.
 {
   // Minimal single-piece RAW with a chosen placed orientation (pw × ph).
   const rawOne = (pw, ph) => [
@@ -352,16 +351,17 @@ function expectEq(label, actual, expected) {
   };
   console.log('Scenario 8 — edge-banding fields 12/13 (with rotation):');
 
-  // Marks: 1 side → "-", 2 sides → "=", 0/none → "".
-  // l=1200 (ag=2), g=400 (as_=1).  NOT rotated: W=1200=l → bandW='=', bandH='-'.
-  expectEq('not rotated → bandW=ag, bandH=as_',
+  // Marks: 1 side → "-", 2 sides → "=", 0/none → "".  field12=ag, field13=as_.
+  // ag=2 ("="), as_=1 ("-"). Placed 1200×400 → field12='=', field13='-'.
+  expectEq('field12=Bord Lartësia (ag), field13=Bord Gjerësia (as_)',
     lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(1200, 400))), '=|-');
 
-  // ROTATED: placed W=400 (=g), H=1200 (=l) → counts swap: bandW='-', bandH='='.
-  expectEq('rotated 90° → counts swap',
-    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(400, 1200))), '-|=');
+  // Same row, but the optimizer placed it ROTATED (400×1200): marks must NOT
+  // swap — field 12 is still Bord Lartësia (ag), field 13 Bord Gjerësia (as_).
+  expectEq('rotated piece → NO swap (positional)',
+    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(400, 1200))), '=|-');
 
-  // 0 → empty: ag=1, as_=0, not rotated → bandW='-', bandH=''.
+  // 0 → empty: ag=1 ("-"), as_=0 ('').
   expectEq('zero side → empty',
     lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '1', as_: '0' }, rawOne(1200, 400))), '-|');
 
@@ -369,8 +369,8 @@ function expectEq(label, actual, expected) {
   expectEq('no banding → both empty',
     lastTwo(inj({ l: '1200', g: '400', s: '1' }, rawOne(1200, 400))), '|');
 
-  // Square piece (l==g): can't tell rotation → keep natural ag→W, as_→H.
-  expectEq('square piece → no swap',
+  // Square piece — same positional rule.
+  expectEq('square piece → ag/as_ positional',
     lastTwo(inj({ l: '500', g: '500', s: '1', ag: '2', as_: '1' }, rawOne(500, 500))), '=|-');
 }
 

@@ -8348,26 +8348,17 @@ function handleInput(bid, rid, field, val) {
 
 
 function updateTenieLines(b, r) {
-  const l = parseFloat(r.l)||0;
-  const g = parseFloat(r.g)||0;
-  const ag = r.ag ? parseInt(r.ag) : 0;
+  // POSITIONAL assignment (no magnitude swap): "Bord Lartësia" (ag) always
+  // draws its lines on the Lartësia (l) input, "Bord Gjerësia" (as_) on the
+  // Gjerësia (g) input — regardless of which dimension is larger.  This
+  // matches the ML cost calc (ag×l + as_×g) and label fields 12/13, so the
+  // displayed lines, the price, and the saw label all agree.
+  const ag  = r.ag  ? parseInt(r.ag)  : 0;
   const as_ = r.as_ ? parseInt(r.as_) : 0;
-
-  let lLines = 0, gLines = 0;
-  if(l >= g) {
-    // lartësia is bigger (or equal) = anë gjatë
-    lLines = ag;
-    gLines = as_;
-  } else {
-    // gjerësia is bigger = anë gjatë
-    gLines = ag;
-    lLines = as_;
-  }
-
   const twL = document.getElementById('tw-l-'+b.id+'-'+r.id);
   const twG = document.getElementById('tw-g-'+b.id+'-'+r.id);
-  if(twL) twL.dataset.lines = lLines;
-  if(twG) twG.dataset.lines = gLines;
+  if(twL) twL.dataset.lines = ag;
+  if(twG) twG.dataset.lines = as_;
 }
 
 function handleLyerje(bid, rid, checked) {
@@ -9176,8 +9167,8 @@ function renderBlock(b) {
         <input type="checkbox" onclick="toggleAllRows(${b.id},'grain',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.grainLock) ? 'checked' : ''}>
       </div>
     </th>
-    ${(hasTenie && !hasM2) ? `<th style="color:#2d7dd2;min-width:50px">Anë G.</th><th style="color:#1a7a4a;min-width:50px">Anë Sh.</th><th style="min-width:48px">ML</th>` : ''}
-    ${(hasTenie && hasM2)  ? `<th style="color:#2d7dd2;min-width:50px">Anë G.</th><th style="color:#1a7a4a;min-width:50px">Anë Sh.</th><th style="min-width:44px">ML</th><th style="min-width:60px;text-align:center">Anët</th><th style="min-width:52px">M²</th><th style="min-width:40px;text-align:center"><div style="display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;"><span>Lyerje</span><input type="checkbox" onclick="toggleAllRows(${b.id},'lyerje',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.lyerje !== false) ? 'checked' : ''}></div></th>${hasFrezim?`<th style="min-width:42px;text-align:center"><div style="display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;"><span>Frezim</span><input type="checkbox" onclick="toggleAllRows(${b.id},'frezim',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.frezim) ? 'checked' : ''}></div></th>`:''}` : ''}
+    ${(hasTenie && !hasM2) ? `<th style="color:#2d7dd2;min-width:60px">Bord Lartësia</th><th style="color:#1a7a4a;min-width:60px">Bord Gjerësia</th><th style="min-width:48px">ML</th>` : ''}
+    ${(hasTenie && hasM2)  ? `<th style="color:#2d7dd2;min-width:60px">Bord Lartësia</th><th style="color:#1a7a4a;min-width:60px">Bord Gjerësia</th><th style="min-width:44px">ML</th><th style="min-width:60px;text-align:center">Anët</th><th style="min-width:52px">M²</th><th style="min-width:40px;text-align:center"><div style="display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;"><span>Lyerje</span><input type="checkbox" onclick="toggleAllRows(${b.id},'lyerje',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.lyerje !== false) ? 'checked' : ''}></div></th>${hasFrezim?`<th style="min-width:42px;text-align:center"><div style="display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;"><span>Frezim</span><input type="checkbox" onclick="toggleAllRows(${b.id},'frezim',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.frezim) ? 'checked' : ''}></div></th>`:''}` : ''}
     ${(!hasTenie && hasM2) ? `<th style="min-width:72px;text-align:center">Anët</th><th style="min-width:52px">M²</th><th style="min-width:40px;text-align:center"><div style="display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;"><span>Lyerje</span><input type="checkbox" onclick="toggleAllRows(${b.id},'lyerje',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.lyerje !== false) ? 'checked' : ''}></div></th>${hasFrezim?`<th style="min-width:42px;text-align:center"><div style="display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;"><span>Frezim</span><input type="checkbox" onclick="toggleAllRows(${b.id},'frezim',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.frezim) ? 'checked' : ''}></div></th>`:''}` : ''}
     <th>Koment</th>
     <th style="width:34px"></th>
@@ -11726,15 +11717,11 @@ function _buildImportQueueForGroup(siblingBlocks) {
         caseNum:  ((r._importCaseNumber || '') + '').trim(),
         job:      ((r._importJob        || block._importJob || '') + '').trim(),
         subLabel: _qSubLabel,
-        // Edge-banding ("tenije") line counts: ag = "ana gjate" (banding on
-        // the length/l side), as_ = "ana shkurter" (on the larg/g side),
-        // each 0/1/2.  rowL/rowG carry the row's rounded dims so the emitter
-        // can detect optimizer rotation and keep fields 12/13 aligned with
-        // the printed W/H (fields 6/7).
+        // Edge-banding line counts (0/1/2), positional: ag = "Bord Lartësia"
+        // (Lartësia/l side) → label field 12, as_ = "Bord Gjerësia"
+        // (Gjerësia/g side) → label field 13.
         ag:   parseInt(r.ag)  || 0,
         as_:  parseInt(r.as_) || 0,
-        rowL: Math.round(l),
-        rowG: Math.round(g),
       };
       const k1 = Math.round(l) + 'x' + Math.round(g);
       const k2 = Math.round(g) + 'x' + Math.round(l);
@@ -11776,11 +11763,9 @@ function _buildImportQueueForBlock(block) {
       // internal klient/fatura combo.
       job:      ((r._importJob        || '') + '').trim(),
       subLabel: _qSubLabel,
-      // Edge-banding line counts — see _buildImportQueueForGroup.
+      // Edge-banding line counts (positional) — see _buildImportQueueForGroup.
       ag:   parseInt(r.ag)  || 0,
       as_:  parseInt(r.as_) || 0,
-      rowL: Math.round(l),
-      rowG: Math.round(g),
     };
     const k1 = Math.round(l) + 'x' + Math.round(g);
     const k2 = Math.round(g) + 'x' + Math.round(l);
@@ -11965,8 +11950,8 @@ function _injectCodesIntoTxt(content, block, importQueue) {
   //   field 9  front   — PDF: front barcode;   manual: empty
   //   field 10 back    — PDF: back barcode;    manual: empty
   //   field 11 #N      — invoice-subsection badge ("#fatura-N"), both
-  //   field 12 bandW   — edge-banding on the W dimension: - (1 side), = (2 sides), '' (0)
-  //   field 13 bandH   — edge-banding on the H dimension: - (1 side), = (2 sides), '' (0)
+  //   field 12 Bord Lartësia — banding on the Lartësia (l) side: - (1), = (2), '' (0)
+  //   field 13 Bord Gjerësia — banding on the Gjerësia (g) side: - (1), = (2), '' (0)
   //
   // The empty case/barcode fields fall out naturally for manual orders
   // (their importQueue entries carry '' for those), so ONE emitter serves
@@ -12043,19 +12028,16 @@ function _injectCodesIntoTxt(content, block, importQueue) {
       // piece is rotated 90° and the two counts swap to stay paired with
       // the printed dimensions.  Square pieces (l == g) can't be told
       // apart, so they keep the natural ag→W / as_→H order.  0 → empty.
-      const _ag = hit.ag || 0, _as = hit.as_ || 0;
-      const _rotated = (hit.rowL != null && hit.rowG != null
-                        && hit.rowL !== hit.rowG
-                        && wInt === hit.rowG && hInt === hit.rowL);
-      const f12n = _rotated ? _as : _ag;   // banding count for field 6 (W)
-      const f13n = _rotated ? _ag : _as;   // banding count for field 7 (H)
-      // Render the count as ASCII line marks the saw recognises: 1 side →
-      // "-" (one line), 2 sides → "=" (two parallel lines), 0/none → empty.
-      // (The box-drawing chars ─/═ tried first were unrecognised by the saw
-      // — plain ASCII prints reliably regardless of the file's encoding.)
+      // Fields 12/13 = edge-banding, POSITIONAL (operator request):
+      //   field 12 = Bord Lartësia (ag, the Lartësia/l side)
+      //   field 13 = Bord Gjerësia (as_, the Gjerësia/g side)
+      // The mark always describes its NAMED dimension's banding — no
+      // rotation handling — matching the app's column-1/column-2 inputs and
+      // the ML cost calc.  Rendered as ASCII line marks the saw recognises:
+      // 1 side → "-", 2 sides → "=" (two parallel lines), 0/none → empty.
       const _bandGlyph = (n) => n === 2 ? '=' : n === 1 ? '-' : '';
-      const f12 = _bandGlyph(f12n);
-      const f13 = _bandGlyph(f13n);
+      const f12 = _bandGlyph(hit.ag  || 0);   // Bord Lartësia
+      const f13 = _bandGlyph(hit.as_ || 0);   // Bord Gjerësia
       expandedLines.push(
         nextIdx + '=,,1,CuttElab,'
         + pieceProject + ','
