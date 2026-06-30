@@ -85,7 +85,7 @@ function expectEq(label, actual, expected) {
 }
 
 // Unified format (field 11 = "#fatura-N"; fields 12-15 = edge-banding,
-// one "-" per line: L1,L2 = Lartësia lines, G1,G2 = Gjerësia lines):
+// one "B" (Bordim) per line: L1,L2 = Lartësia lines, G1,G2 = Gjerësia lines):
 //   ,,1,CuttElab,<project>,<case>,<material>,<desc>,<W>,<H>,<T>,<front>,<back>,<#fatura-N>,<L1>,<L2>,<G1>,<G2>
 
 // ── Scenario 1: MANUAL order (komente only, comma inside one koment) ──
@@ -186,7 +186,7 @@ function expectEq(label, actual, expected) {
     '[Dati]',
     'NumeroDati=4',
     // New format: badge in field 11, followed by the 4 band-line fields.
-    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#—-1,-,,-,-',
+    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#—-1,B,,B,B',
     '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#—-2,,,,',
     // Old format (frozen before fields 12/13 existed): badge at end of line.
     '3=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Anesore,300,200,16,,,#—-3',
@@ -196,7 +196,7 @@ function expectEq(label, actual, expected) {
   const fixed = fns._fixupManualSubLabels(baked).split('\r\n');
   console.log('Scenario 5 — export-time fatura fixup (field 11):');
   expectEq('new-format #—-1 → #119-1, bands kept', fixed[2],
-    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#119-1,-,,-,-');
+    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#119-1,B,,B,B');
   expectEq('new-format #—-2 → #119-2, empty bands kept', fixed[3],
     '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#119-2,,,,');
   expectEq('old-format (badge at EOL) #—-3 → #119-3', fixed[4],
@@ -319,8 +319,8 @@ function expectEq(label, actual, expected) {
     'r33b0001,r33b0002,r33b0003,r33b0004,r33b0005,r33b0006,r33b0007,r33b0008');
 }
 
-// ── Scenario 8: fields 12-15 = edge-banding, split one "-" per line ──
-// Each dimension's banding spans TWO fields, one "-" per line:
+// ── Scenario 8: fields 12-15 = edge-banding, one "B" (Bordim) per line ──
+// Each dimension's banding spans TWO fields, one "B" per line:
 //   field 12 = Lartësia line 1 (ag>=1), field 13 = Lartësia line 2 (ag>=2)
 //   field 14 = Gjerësia line 1 (as_>=1), field 15 = Gjerësia line 2 (as_>=2)
 // Positional — describes the NAMED dimension regardless of optimizer rotation.
@@ -347,21 +347,21 @@ function expectEq(label, actual, expected) {
   };
   console.log('Scenario 8 — edge-banding fields 12-15 (split lines):');
 
-  // ag=2 → L1=-, L2=-;  as_=1 → G1=-, G2=''.
+  // ag=2 → L1=B, L2=B;  as_=1 → G1=B, G2=''.
   expectEq('Lartësia 2 lines, Gjerësia 1 line',
-    bands(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(1200, 400))), '-|-|-|');
+    bands(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(1200, 400))), 'B|B|B|');
 
   // Same row placed ROTATED (400×1200) → no swap (positional).
   expectEq('rotated piece → NO swap (positional)',
-    bands(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(400, 1200))), '-|-|-|');
+    bands(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(400, 1200))), 'B|B|B|');
 
-  // Screenshot case: Lartësia=1, Gjerësia=2 → L1=-, L2='', G1=-, G2=-.
+  // Screenshot case: Lartësia=1, Gjerësia=2 → L1=B, L2='', G1=B, G2=B.
   expectEq('Lartësia 1 line, Gjerësia 2 lines',
-    bands(inj({ l: '1200', g: '400', s: '1', ag: '1', as_: '2' }, rawOne(1200, 400))), '-||-|-');
+    bands(inj({ l: '1200', g: '400', s: '1', ag: '1', as_: '2' }, rawOne(1200, 400))), 'B||B|B');
 
   // ag=1, as_=0 → only L1.
   expectEq('one side, other none',
-    bands(inj({ l: '1200', g: '400', s: '1', ag: '1', as_: '0' }, rawOne(1200, 400))), '-|||');
+    bands(inj({ l: '1200', g: '400', s: '1', ag: '1', as_: '0' }, rawOne(1200, 400))), 'B|||');
 
   // No tenije at all → all empty.
   expectEq('no banding → all empty',
@@ -369,7 +369,7 @@ function expectEq(label, actual, expected) {
 
   // Square piece — same positional rule.
   expectEq('square piece → positional',
-    bands(inj({ l: '500', g: '500', s: '1', ag: '2', as_: '1' }, rawOne(500, 500))), '-|-|-|');
+    bands(inj({ l: '500', g: '500', s: '1', ag: '2', as_: '1' }, rawOne(500, 500))), 'B|B|B|');
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);

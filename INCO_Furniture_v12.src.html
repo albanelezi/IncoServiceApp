@@ -11950,10 +11950,10 @@ function _injectCodesIntoTxt(content, block, importQueue) {
   //   field 9  front   — PDF: front barcode;   manual: empty
   //   field 10 back    — PDF: back barcode;    manual: empty
   //   field 11 #N      — invoice-subsection badge ("#fatura-N"), both
-  //   field 12 Lartësia line 1 — "-" if ag>=1 else ''
-  //   field 13 Lartësia line 2 — "-" if ag>=2 else ''
-  //   field 14 Gjerësia line 1 — "-" if as_>=1 else ''
-  //   field 15 Gjerësia line 2 — "-" if as_>=2 else ''
+  //   field 12 Lartësia line 1 — "B" (Bordim) if ag>=1 else ''
+  //   field 13 Lartësia line 2 — "B" if ag>=2 else ''
+  //   field 14 Gjerësia line 1 — "B" if as_>=1 else ''
+  //   field 15 Gjerësia line 2 — "B" if as_>=2 else ''
   //
   // The empty case/barcode fields fall out naturally for manual orders
   // (their importQueue entries carry '' for those), so ONE emitter serves
@@ -12030,18 +12030,18 @@ function _injectCodesIntoTxt(content, block, importQueue) {
       // piece is rotated 90° and the two counts swap to stay paired with
       // the printed dimensions.  Square pieces (l == g) can't be told
       // apart, so they keep the natural ag→W / as_→H order.  0 → empty.
-      // Fields 12-15 = edge-banding lines, POSITIONAL, ONE "-" per line
-      // split across TWO fields per dimension (operator request — easier to
-      // place on the label than a single "=" for two lines):
+      // Fields 12-15 = edge-banding lines, POSITIONAL, one "B" (Bordim) per
+      // line split across TWO fields per dimension (operator request — easier
+      // to place on the label than a single mark for two lines):
       //   Bord Lartësia (ag):  field 12 = line 1, field 13 = line 2
       //   Bord Gjerësia (as_): field 14 = line 1, field 15 = line 2
-      // A field is "-" once the count reaches that line, else empty.  No
+      // A field is "B" once the count reaches that line, else empty.  No
       // rotation handling — each mark describes its NAMED dimension.
       const _agN = hit.ag || 0, _asN = hit.as_ || 0;
-      const f12 = _agN >= 1 ? '-' : '';   // Lartësia line 1
-      const f13 = _agN >= 2 ? '-' : '';   // Lartësia line 2
-      const f14 = _asN >= 1 ? '-' : '';   // Gjerësia line 1
-      const f15 = _asN >= 2 ? '-' : '';   // Gjerësia line 2
+      const f12 = _agN >= 1 ? 'B' : '';   // Lartësia line 1
+      const f13 = _agN >= 2 ? 'B' : '';   // Lartësia line 2
+      const f14 = _asN >= 1 ? 'B' : '';   // Gjerësia line 1
+      const f15 = _asN >= 2 ? 'B' : '';   // Gjerësia line 2
       expandedLines.push(
         nextIdx + '=,,1,CuttElab,'
         + pieceProject + ','
