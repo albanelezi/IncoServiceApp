@@ -84,9 +84,9 @@ function expectEq(label, actual, expected) {
   }
 }
 
-// Unified format (field 11 = "#fatura-N", fields 12/13 = edge-banding line
-// counts aligned with the printed W/H; 0 → empty):
-//   ,,1,CuttElab,<project>,<case>,<material>,<desc>,<W>,<H>,<T>,<front>,<back>,<#fatura-N>,<bandW>,<bandH>
+// Unified format (field 11 = "#fatura-N"; fields 12-15 = edge-banding,
+// one "-" per line: L1,L2 = Lartësia lines, G1,G2 = Gjerësia lines):
+//   ,,1,CuttElab,<project>,<case>,<material>,<desc>,<W>,<H>,<T>,<front>,<back>,<#fatura-N>,<L1>,<L2>,<G1>,<G2>
 
 // ── Scenario 1: MANUAL order (komente only, comma inside one koment) ──
 {
@@ -105,11 +105,11 @@ function expectEq(label, actual, expected) {
   const dati = getDati(out);
   console.log('Scenario 1 — manual order (unified, comma stripped):');
   expectEq('line 1', dati[0],
-    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Pasqyre patura e pasqyres mbrapa,1200,900,18,,,#119-1,,');
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Pasqyre patura e pasqyres mbrapa,1200,900,18,,,#119-1,,,,');
   expectEq('line 2', dati[1],
-    '2=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Pasqyre patura e pasqyres mbrapa,1200,900,18,,,#119-1,,');
+    '2=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Pasqyre patura e pasqyres mbrapa,1200,900,18,,,#119-1,,,,');
   expectEq('line 3', dati[2],
-    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Gola inkaso,412,180,18,,,#119-1,,');
+    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Gola inkaso,412,180,18,,,#119-1,,,,');
 }
 
 // ── Scenario 2: manual order, block at position 2 → "#119-2" ─────────
@@ -127,9 +127,9 @@ function expectEq(label, actual, expected) {
   const dati = getDati(out);
   console.log('Scenario 2 — manual, second section:');
   expectEq('line 1', dati[0],
-    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Rafte,1200,900,18,,,#119-2,,');
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Rafte,1200,900,18,,,#119-2,,,,');
   expectEq('line 3 (empty koment)', dati[2],
-    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,412,180,18,,,#119-2,,');
+    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,412,180,18,,,#119-2,,,,');
 }
 
 // ── Scenario 3: PDF order — same unified layout + field 11 ───────────
@@ -152,9 +152,9 @@ function expectEq(label, actual, expected) {
   const dati = getDati(out);
   console.log('Scenario 3 — PDF order (unified + field 11):');
   expectEq('line 1', dati[0],
-    '1=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,');
+    '1=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,,,');
   expectEq('line 3 (empty back barcode)', dati[2],
-    '3=,,1,CuttElab,flavio vali/KZH,8,MDF Bardhe Shqeto 18mm,Shelf,412,180,18,C9,,#119-1,,');
+    '3=,,1,CuttElab,flavio vali/KZH,8,MDF Bardhe Shqeto 18mm,Shelf,412,180,18,C9,,#119-1,,,,');
 }
 
 // ── Scenario 4: PDF desc WITH a comma → stripped, field 11 stays last ─
@@ -177,7 +177,7 @@ function expectEq(label, actual, expected) {
   const dati = getDati(out);
   console.log('Scenario 4 — comma in PDF desc is stripped:');
   expectEq('comma stripped, fields intact', dati[0],
-    '1=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,');
+    '1=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,,,');
 }
 
 // ── Scenario 5: export-time "#—-N" fixup (optimize-before-save case) ──
@@ -185,24 +185,24 @@ function expectEq(label, actual, expected) {
   const baked = [
     '[Dati]',
     'NumeroDati=4',
-    // New format: badge in field 11, followed by ,bandW,bandH.
-    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#—-1,2,1',
-    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#—-2,,',
+    // New format: badge in field 11, followed by the 4 band-line fields.
+    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#—-1,-,,-,-',
+    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#—-2,,,,',
     // Old format (frozen before fields 12/13 existed): badge at end of line.
     '3=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Anesore,300,200,16,,,#—-3',
-    '4=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,',
+    '4=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,,,',
   ].join('\r\n');
   const fns = makeFns(docStub, [], pricesStub);          // nr-fatura = '119'
   const fixed = fns._fixupManualSubLabels(baked).split('\r\n');
   console.log('Scenario 5 — export-time fatura fixup (field 11):');
   expectEq('new-format #—-1 → #119-1, bands kept', fixed[2],
-    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#119-1,2,1');
+    '1=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Sirtar,444,444,16,,,#119-1,-,,-,-');
   expectEq('new-format #—-2 → #119-2, empty bands kept', fixed[3],
-    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#119-2,,');
+    '2=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Kapak,555,555,16,,,#119-2,,,,');
   expectEq('old-format (badge at EOL) #—-3 → #119-3', fixed[4],
     '3=,,1,CuttElab,Alban Elezi,,Melamine e bardhe 16mm,Anesore,300,200,16,,,#119-3');
   expectEq('already-correct line untouched', fixed[5],
-    '4=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,');
+    '4=,,1,CuttElab,flavio vali/KZH,7,MDF Bardhe Shqeto 18mm,Side Panel,1200,900,18,C1,C1B,#119-1,,,,');
 
   // CRLF preserved through the fixup (no \r leak / loss).
   expectEq('CRLF line count preserved',
@@ -235,7 +235,7 @@ function expectEq(label, actual, expected) {
   const bakedDati = getDati(baked);
   console.log('Scenario 6 — comment added after optimize:');
   expectEq('baked field 5 empty (the bug)', bakedDati[0],
-    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,1200,900,18,,,#119-1,,');
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,,1200,900,18,,,#119-1,,,,');
 
   // Step 2: operator types comments; export re-derives from the SAME raw.
   const blockNow = {
@@ -248,11 +248,11 @@ function expectEq(label, actual, expected) {
     RAW, blockNow, fns2._buildImportQueueForGroup([blockNow]));
   const rebakedDati = getDati(rebaked);
   expectEq('rebaked line 1 field 5 = koment', rebakedDati[0],
-    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Anesore,1200,900,18,,,#119-1,,');
+    '1=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Anesore,1200,900,18,,,#119-1,,,,');
   expectEq('rebaked line 2 field 5 = koment', rebakedDati[1],
-    '2=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Anesore,1200,900,18,,,#119-1,,');
+    '2=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Anesore,1200,900,18,,,#119-1,,,,');
   expectEq('rebaked line 3 field 5 = koment', rebakedDati[2],
-    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Baza,412,180,18,,,#119-1,,');
+    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Baza,412,180,18,,,#119-1,,,,');
 }
 
 // ── Scenario 7: batched X-strip (rep>1) → unique barcode per piece ───
@@ -319,12 +319,12 @@ function expectEq(label, actual, expected) {
     'r33b0001,r33b0002,r33b0003,r33b0004,r33b0005,r33b0006,r33b0007,r33b0008');
 }
 
-// ── Scenario 8: fields 12/13 = edge-banding, POSITIONAL ──────────────
-// field 12 = Bord Lartësia (ag, the l side), field 13 = Bord Gjerësia
-// (as_, the g side).  Always positional — the mark describes its NAMED
-// dimension regardless of how the optimizer rotates the piece.  0 → empty.
+// ── Scenario 8: fields 12-15 = edge-banding, split one "-" per line ──
+// Each dimension's banding spans TWO fields, one "-" per line:
+//   field 12 = Lartësia line 1 (ag>=1), field 13 = Lartësia line 2 (ag>=2)
+//   field 14 = Gjerësia line 1 (as_>=1), field 15 = Gjerësia line 2 (as_>=2)
+// Positional — describes the NAMED dimension regardless of optimizer rotation.
 {
-  // Minimal single-piece RAW with a chosen placed orientation (pw × ph).
   const rawOne = (pw, ph) => [
     '[Intestazione]', 'Descrizione=X', 'TipoMateriale=X_1',
     'Lunghezza=2800.000000', 'Larghezza=2070.000000', 'Spessore=18.000000',
@@ -338,40 +338,38 @@ function expectEq(label, actual, expected) {
     `1=,,1,CuttElab,,1,${pw}.00,${ph}.00,18.00,,0,1`,
     '[Riferimenti]', '1=', '2=', '3=', '4=(1)',
   ].join('\r\n');
-  const lastTwo = (out) => {
-    const f = getDati(out)[0].split(',');
-    return f[f.length - 2] + '|' + f[f.length - 1];   // bandW|bandH
-  };
-  // Wrap a single row in a block (the row alone has no .rows, which
-  // _injectCodesIntoTxt requires) and inject the chosen placed orientation.
+  // Last 4 fields = L1|L2|G1|G2.
+  const bands = (out) => getDati(out)[0].split(',').slice(-4).join('|');
   const inj = (row, raw) => {
     const block = { id: 1, materialId: 'm1', formatId: 'f1', rows: [row] };
     const fns = makeFns(docStub, [block], pricesStub);
     return fns._injectCodesIntoTxt(raw, block, fns._buildImportQueueForGroup([block]));
   };
-  console.log('Scenario 8 — edge-banding fields 12/13 (with rotation):');
+  console.log('Scenario 8 — edge-banding fields 12-15 (split lines):');
 
-  // Marks: 1 side → "-", 2 sides → "=", 0/none → "".  field12=ag, field13=as_.
-  // ag=2 ("="), as_=1 ("-"). Placed 1200×400 → field12='=', field13='-'.
-  expectEq('field12=Bord Lartësia (ag), field13=Bord Gjerësia (as_)',
-    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(1200, 400))), '=|-');
+  // ag=2 → L1=-, L2=-;  as_=1 → G1=-, G2=''.
+  expectEq('Lartësia 2 lines, Gjerësia 1 line',
+    bands(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(1200, 400))), '-|-|-|');
 
-  // Same row, but the optimizer placed it ROTATED (400×1200): marks must NOT
-  // swap — field 12 is still Bord Lartësia (ag), field 13 Bord Gjerësia (as_).
+  // Same row placed ROTATED (400×1200) → no swap (positional).
   expectEq('rotated piece → NO swap (positional)',
-    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(400, 1200))), '=|-');
+    bands(inj({ l: '1200', g: '400', s: '1', ag: '2', as_: '1' }, rawOne(400, 1200))), '-|-|-|');
 
-  // 0 → empty: ag=1 ("-"), as_=0 ('').
-  expectEq('zero side → empty',
-    lastTwo(inj({ l: '1200', g: '400', s: '1', ag: '1', as_: '0' }, rawOne(1200, 400))), '-|');
+  // Screenshot case: Lartësia=1, Gjerësia=2 → L1=-, L2='', G1=-, G2=-.
+  expectEq('Lartësia 1 line, Gjerësia 2 lines',
+    bands(inj({ l: '1200', g: '400', s: '1', ag: '1', as_: '2' }, rawOne(1200, 400))), '-||-|-');
 
-  // No tenije at all (ag/as_ unset) → both empty.
-  expectEq('no banding → both empty',
-    lastTwo(inj({ l: '1200', g: '400', s: '1' }, rawOne(1200, 400))), '|');
+  // ag=1, as_=0 → only L1.
+  expectEq('one side, other none',
+    bands(inj({ l: '1200', g: '400', s: '1', ag: '1', as_: '0' }, rawOne(1200, 400))), '-|||');
+
+  // No tenije at all → all empty.
+  expectEq('no banding → all empty',
+    bands(inj({ l: '1200', g: '400', s: '1' }, rawOne(1200, 400))), '|||');
 
   // Square piece — same positional rule.
-  expectEq('square piece → ag/as_ positional',
-    lastTwo(inj({ l: '500', g: '500', s: '1', ag: '2', as_: '1' }, rawOne(500, 500))), '=|-');
+  expectEq('square piece → positional',
+    bands(inj({ l: '500', g: '500', s: '1', ag: '2', as_: '1' }, rawOne(500, 500))), '-|-|-|');
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);

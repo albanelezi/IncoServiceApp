@@ -11940,7 +11940,7 @@ function _injectCodesIntoTxt(content, block, importQueue) {
   //
   // Final per-line format (one label per line) — UNIFIED for BOTH manual
   // and PDF orders (operator request, 2026-06):
-  //   N=,,1,CuttElab,<project>,<case>,<material>,<desc>,<W>,<H>,<T>,<front>,<back>,<#fatura-N>,<bandW>,<bandH>
+  //   N=,,1,CuttElab,<project>,<case>,<material>,<desc>,<W>,<H>,<T>,<front>,<back>,<#fatura-N>,<L1>,<L2>,<G1>,<G2>
   //
   //   field 2  project — PDF: label job title; manual: klient/fatura
   //   field 3  case    — PDF: from label;      manual: empty
@@ -11950,8 +11950,10 @@ function _injectCodesIntoTxt(content, block, importQueue) {
   //   field 9  front   — PDF: front barcode;   manual: empty
   //   field 10 back    — PDF: back barcode;    manual: empty
   //   field 11 #N      — invoice-subsection badge ("#fatura-N"), both
-  //   field 12 Bord Lartësia — banding on the Lartësia (l) side: - (1), = (2), '' (0)
-  //   field 13 Bord Gjerësia — banding on the Gjerësia (g) side: - (1), = (2), '' (0)
+  //   field 12 Lartësia line 1 — "-" if ag>=1 else ''
+  //   field 13 Lartësia line 2 — "-" if ag>=2 else ''
+  //   field 14 Gjerësia line 1 — "-" if as_>=1 else ''
+  //   field 15 Gjerësia line 2 — "-" if as_>=2 else ''
   //
   // The empty case/barcode fields fall out naturally for manual orders
   // (their importQueue entries carry '' for those), so ONE emitter serves
@@ -12028,16 +12030,18 @@ function _injectCodesIntoTxt(content, block, importQueue) {
       // piece is rotated 90° and the two counts swap to stay paired with
       // the printed dimensions.  Square pieces (l == g) can't be told
       // apart, so they keep the natural ag→W / as_→H order.  0 → empty.
-      // Fields 12/13 = edge-banding, POSITIONAL (operator request):
-      //   field 12 = Bord Lartësia (ag, the Lartësia/l side)
-      //   field 13 = Bord Gjerësia (as_, the Gjerësia/g side)
-      // The mark always describes its NAMED dimension's banding — no
-      // rotation handling — matching the app's column-1/column-2 inputs and
-      // the ML cost calc.  Rendered as ASCII line marks the saw recognises:
-      // 1 side → "-", 2 sides → "=" (two parallel lines), 0/none → empty.
-      const _bandGlyph = (n) => n === 2 ? '=' : n === 1 ? '-' : '';
-      const f12 = _bandGlyph(hit.ag  || 0);   // Bord Lartësia
-      const f13 = _bandGlyph(hit.as_ || 0);   // Bord Gjerësia
+      // Fields 12-15 = edge-banding lines, POSITIONAL, ONE "-" per line
+      // split across TWO fields per dimension (operator request — easier to
+      // place on the label than a single "=" for two lines):
+      //   Bord Lartësia (ag):  field 12 = line 1, field 13 = line 2
+      //   Bord Gjerësia (as_): field 14 = line 1, field 15 = line 2
+      // A field is "-" once the count reaches that line, else empty.  No
+      // rotation handling — each mark describes its NAMED dimension.
+      const _agN = hit.ag || 0, _asN = hit.as_ || 0;
+      const f12 = _agN >= 1 ? '-' : '';   // Lartësia line 1
+      const f13 = _agN >= 2 ? '-' : '';   // Lartësia line 2
+      const f14 = _asN >= 1 ? '-' : '';   // Gjerësia line 1
+      const f15 = _asN >= 2 ? '-' : '';   // Gjerësia line 2
       expandedLines.push(
         nextIdx + '=,,1,CuttElab,'
         + pieceProject + ','
@@ -12051,7 +12055,9 @@ function _injectCodesIntoTxt(content, block, importQueue) {
         + hit.codeBack + ','
         + (hit.subLabel || _blockSubLabel) + ','
         + f12 + ','
-        + f13
+        + f13 + ','
+        + f14 + ','
+        + f15
       );
     }
   }
