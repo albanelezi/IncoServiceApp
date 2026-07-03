@@ -33,7 +33,7 @@ const v2 = require('./lib/v2packer');
 const algo = require('./lib/algorithm');
 
 const { consolidate, generateCandidates, rowsX, rowsY, genFileContent,
-        packXGreedy, packYGreedy, fitYStripOffcuts, buildYCandidate } = v2;
+        packXGreedy, packYGreedy, fitYStripOffcuts } = v2;
 const { setCoverBB, dominanceFilter } = algo;
 
 // ─────────────────────────────────────────────────────────────────────
@@ -860,43 +860,7 @@ function greedyPack(types, panelL, panelW, kerf, trimEdge, trimSub, cutDir, log)
     if (cs.length === 0) break;
 
     // Filter candidates to those whose consumption fits inside `rem`.
-    //
-    // REMNANT CONSOLIDATION (final-panel tiebreak):
-    //   When the job ENDS on this panel (a candidate covers every remaining
-    //   piece), all full-placement candidates tie on eff AND placedCount —
-    //   they place the same pieces.  The old tiebreak ("fewer strips") then
-    //   picked visually-simple layouts that sprawl across the panel and
-    //   scatter the leftover into unusable gaps (e.g. two 764-tall strips
-    //   at 54% fill).  Among job-finishing candidates we now prefer the one
-    //   that consumes the LEAST of the panel along its stacking axis —
-    //   leaving the largest contiguous full-width (Y-mode) / full-height
-    //   (X-mode) remnant band the workshop can actually reuse ("resto").
-    //
-    //   Panel-count safety: this tiebreak only applies when BOTH candidates
-    //   finish the job — the job ends with this panel either way, so total
-    //   panel count is mathematically unchanged.  Non-final panels keep the
-    //   existing comparator exactly.
-    //
-    //   We also prefer a job-FINISHING candidate over a non-finishing one on
-    //   exact eff/placedCount ties (equal area, different piece mix): the
-    //   finisher ends the job now, the other would strand pieces for one
-    //   more panel — strictly fewer panels, never more.
-    const _availY = panelW - 2 * trimEdge;       // Y-mode stacking budget
-    const _availX = panelL - 2 * trimEdge;       // X-mode stacking budget
-    // Contiguous leftover band area beyond the last strip (mode-fair:
-    // compares Y-mode height-leftover × panel length against X-mode
-    // width-leftover × panel width on equal footing).
-    const bandAreaOf = (cc) => {
-      if (!cc.strips || cc.strips.length === 0) return 0;
-      const used = usedAxis(cc.strips, cc.mode, kerf);
-      return cc.mode === 'Y'
-        ? Math.max(0, _availY - used) * panelL
-        : Math.max(0, _availX - used) * panelW;
-    };
-    const finishesJob = (cons) =>
-      rem.every(t => t.rem <= 0 || (cons[t.id] || 0) >= t.rem);
     let best = null;
-    let bestFinishes = false;
     for (const c of cs) {
       const cons = computeConsumption(c);
       let fits = true;
@@ -906,174 +870,30 @@ function greedyPack(types, panelL, panelW, kerf, trimEdge, trimSub, cutDir, log)
       }
       if (!fits) continue;
       // Score: eff first (= area placed, since panel area is fixed), then
-      // placedCount, then — on full ties — remnant band (job-finishing
-      // candidates only) and fewer strips. Eff/placedCount take priority,
-      // so intermediate-panel outcomes are byte-identical to the previous
-      // comparator; the new rules only decide among tied candidates.
+      // placedCount, then fewer strips. Eff/placedCount were already enough
+      // for panel-count minimization; fewer-strips kicks in only on true
+      // ties to prefer cleaner layouts (e.g. one X-mode column vs four
+      // Y-mode strips placing identical pieces with identical efficiency).
+      // Both eff and placedCount take priority — this can never change a
+      // panel-count outcome, only the visual style on perfectly tied picks.
       const stripsOf = (cc) => (cc.strips && cc.strips.length) || 0;
-      const take = () => { c.consumption = cons; best = c; bestFinishes = finishesJob(cons); };
       if (!best) {
-        take();
+        c.consumption = cons;
+        best = c;
       } else if (c.eff > best.eff + 1e-9) {
-        take();
+        c.consumption = cons;
+        best = c;
       } else if (Math.abs(c.eff - best.eff) <= 1e-9) {
         if (c.placedCount > best.placedCount) {
-          take();
-        } else if (c.placedCount === best.placedCount) {
-          const cFinishes = finishesJob(cons);
-          if (cFinishes && !bestFinishes) {
-            // Same area+count but this one ends the job → strictly fewer panels.
-            take();
-          } else if (cFinishes && bestFinishes) {
-            // Both end the job: maximize the contiguous remnant band, then
-            // keep the old fewer-strips preference for true residual ties.
-            const cBand = bandAreaOf(c), bBand = bandAreaOf(best);
-            if (cBand > bBand + 1) take();
-            else if (Math.abs(cBand - bBand) <= 1 && stripsOf(c) < stripsOf(best)) take();
-          } else if (!cFinishes && !bestFinishes && stripsOf(c) < stripsOf(best)) {
-            // Neither finishes: previous behavior, unchanged.
-            take();
-          }
+          c.consumption = cons;
+          best = c;
+        } else if (c.placedCount === best.placedCount && stripsOf(c) < stripsOf(best)) {
+          c.consumption = cons;
+          best = c;
         }
       }
     }
     if (!best) break;
-
-    // ── FINAL-PANEL TIGHT REPACK ─────────────────────────────────────
-    // When the job ends on this panel, the candidate pool rarely contains
-    // the TIGHTEST full-placement layout (the bounded strip-schedule
-    // enumerator explores same-height-heavy subtrees first and its wall
-    // budget can expire before mixed tight schedules are reached).  So:
-    // probe the production greedy packers directly with a SHRINKING
-    // stacking budget (binary search) and keep the smallest budget that
-    // still places every remaining piece.  If the resulting layout leaves
-    // a larger contiguous remnant band than the chosen candidate, adopt
-    // it (after a full render pre-validation so a malformed layout can
-    // never replace a good one).
-    //
-    // Safety: runs ONLY when bestFinishes (job ends here regardless), uses
-    // the same packers candidates are built from, and adoption requires
-    // (a) full placement, (b) strictly better band, (c) clean rowsY/rowsX
-    // + genFileContent render.  Cost: ~2×11 greedy probes on ≤ final-panel
-    // piece counts — microseconds against the optimize budget.
-    if (bestFinishes) {
-      try {
-        const remLive = rem.filter(t => t.rem > 0)
-          .map(t => ({ ...t, total: t.rem }));
-        const totArea = remLive.reduce((s, t) => s + t.w * t.h * t.rem, 0);
-        const fullyPlaced = (res) => res && res.finalRem &&
-          res.finalRem.every(t => t.rem <= 0);
-        // Convert a raw packer result into a candidate via rebuildCandidate
-        // (recomputes consumption/placedCount/eff from the strips).
-        const toCand = (strips, mode) =>
-          rebuildCandidate({ mode, strips }, strips, panelL, panelW);
-        // Render pre-validation: the WinCut grammar tripwire inside
-        // genFileContent throws on any malformed strip stream.
-        const renders = (cand) => {
-          try {
-            const rows = cand.mode === 'Y'
-              ? rowsY(cand.strips, trimSub, trimEdge)
-              : rowsX(cand.strips, trimEdge, trimSub);
-            const snap = remLive.map(t => ({
-              ...t, placedOnThisPanel: cand.consumption[t.id] || 0 }));
-            genFileContent(panelL, panelW, 18, 'probe', rows, snap, 3000, 32);
-            return true;
-          } catch (e) { return false; }
-        };
-        // Binary-search the smallest stacking budget with full placement.
-        const probeMin = (packFn, hardLo, hardHi) => {
-          let lo = hardLo, hi = hardHi, found = null;
-          for (let it = 0; it < 12 && lo <= hi; it++) {
-            const mid = Math.floor((lo + hi) / 2);
-            const res = packFn(mid);
-            if (fullyPlaced(res)) { found = res; hi = mid - 1; }
-            else lo = mid + 1;
-          }
-          return found;
-        };
-        const availYTot = panelW - 2 * trimEdge;
-        const availXTot = panelL - 2 * trimEdge;
-        const yLo = Math.max(50, Math.floor(totArea / (panelL - trimSub - trimEdge)));
-        const xLo = Math.max(50, Math.floor(totArea / (panelW - trimSub - trimEdge)));
-        const tries = [];
-        const yRes = probeMin(
-          (H) => packYGreedy(remLive.map(t => ({ ...t })),
-                             panelL - trimSub - trimEdge, H, kerf, trimSub),
-          yLo, availYTot);
-        if (yRes) tries.push(toCand(yRes.strips, 'Y'));
-        const xRes = probeMin(
-          (W) => packXGreedy(remLive.map(t => ({ ...t })),
-                             W, panelW - trimSub - trimEdge, kerf, trimEdge, trimSub),
-          xLo, availXTot);
-        if (xRes) tries.push(toCand(xRes.strips, 'X'));
-
-        // Probe family 3: EXACT strip-height combinations.  The greedy
-        // probes above are bounded by dominant-piece ordering; a schedule
-        // built from the pieces' own heights (e.g. [525, 500, 364]) often
-        // packs the same job noticeably tighter.  Enumerate combos (k ≤ 4)
-        // of the top strip heights by demand-area, build each via the
-        // production buildYCandidate (no lead exploration — single pass),
-        // and keep full-placement results.  ≤ ~330 cheap calls, final
-        // panel only.
-        if (typeof buildYCandidate === 'function') {
-          const hScore = new Map();
-          for (const t of remLive) {
-            const orients = t.grainLock ? [[t.w, t.h]] : [[t.w, t.h], [t.h, t.w]];
-            for (const [, ph] of orients) {
-              if (ph <= availYTot) {
-                hScore.set(ph, (hScore.get(ph) || 0) + t.rem * t.w * t.h);
-              }
-            }
-          }
-          const hs = [...hScore.entries()]
-            .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([h]) => h);
-          const combos = [];
-          const gen = (start, combo, sum) => {
-            if (combo.length) combos.push(combo.slice());
-            if (combo.length >= 4) return;
-            for (let i = start; i < hs.length; i++) {
-              const nsum = sum + hs[i] + (combo.length ? kerf : 0);
-              if (nsum > availYTot) continue;
-              combo.push(hs[i]);
-              gen(i + 1, combo, nsum);
-              combo.pop();
-            }
-          };
-          gen(0, [], 0);
-          for (const combo of combos) {
-            // Tallest strip at the bottom (house convention), plus the
-            // reverse order — strip order changes which strip claims
-            // contested pieces first.
-            for (const order of [combo.slice().sort((a, b) => b - a),
-                                 combo.slice().sort((a, b) => a - b)]) {
-              const c = buildYCandidate(
-                remLive.map(t => ({ ...t })), order, panelL, panelW,
-                kerf, trimEdge, trimSub, null,
-                new Array(order.length).fill(false), true);
-              if (c && c.finalRem && c.finalRem.every(t => t.rem <= 0)) {
-                tries.push(toCand(c.strips, 'Y'));
-              }
-            }
-          }
-        }
-        for (const cand of tries) {
-          if (!cand || !cand.strips || cand.strips.length === 0) continue;
-          if (!finishesJob(cand.consumption)) continue;
-          // Never exceed available demand (paranoia — packer was fed rem).
-          let ok = true;
-          for (const tid of Object.keys(cand.consumption)) {
-            const t = rem.find(r => r.id === Number(tid));
-            if (!t || cand.consumption[tid] > t.rem) { ok = false; break; }
-          }
-          if (!ok) continue;
-          if (bandAreaOf(cand) > bandAreaOf(best) + 1 && renders(cand)) {
-            best = cand;
-          }
-        }
-      } catch (e) {
-        if (log) log('tight-repack skipped', e && e.message);
-      }
-    }
 
     // Augment: if the picked candidate leaves leftover panel extent, fill
     // it with additional strips from the remaining demand minus what
