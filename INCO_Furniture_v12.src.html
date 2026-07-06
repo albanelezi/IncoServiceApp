@@ -2886,6 +2886,7 @@ body.hide-prices .col-totali { display: none !important; }
     <input type="email" id="login-email" autocomplete="username" autofocus>
     <label for="login-password">Fjalëkalimi</label>
     <input type="password" id="login-password" autocomplete="current-password">
+    <div id="login-caps-warn" style="display:none;margin-top:6px;padding:6px 10px;border-radius:6px;background:#fef3cd;border:1px solid #f0d47a;color:#8a6d1a;font-size:12px;font-weight:600;">⇪ Kujdes: Caps Lock është aktiv</div>
     <button type="button" id="login-btn" onclick="doLogin()">Hyr</button>
     <div class="login-error" id="login-error"></div>
   </div>
@@ -6474,6 +6475,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const pw = document.getElementById('login-password');
   if (em) em.addEventListener('keydown', handler);
   if (pw) pw.addEventListener('keydown', handler);
+
+  // Caps Lock warning on the password field.  getModifierState is only
+  // reliable on keyboard events, so the state is checked on every
+  // keydown/keyup while the field is focused (keyup catches the Caps Lock
+  // key itself being toggled).  Hidden again on blur — the state can
+  // change while focus is elsewhere, so a stale warning would mislead.
+  const capsWarn = document.getElementById('login-caps-warn');
+  if (pw && capsWarn) {
+    const updateCaps = (e) => {
+      if (!e.getModifierState) return;
+      capsWarn.style.display = e.getModifierState('CapsLock') ? 'block' : 'none';
+    };
+    pw.addEventListener('keydown', updateCaps);
+    pw.addEventListener('keyup', updateCaps);
+    pw.addEventListener('blur', () => { capsWarn.style.display = 'none'; });
+  }
 });
 
 async function doLogout() {
