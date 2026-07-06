@@ -6497,6 +6497,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     document.addEventListener('keydown', track, true);
     document.addEventListener('keyup', track, true);
+    // MouseEvent carries modifier state too — the very click that focuses
+    // the password field reveals Caps Lock (mousedown fires BEFORE focus),
+    // covering the refresh-then-click-straight-into-password flow where
+    // no key was ever pressed.
+    document.addEventListener('mousedown', track, true);
     pw.addEventListener('focus', sync);
     pw.addEventListener('blur', sync);
   }
