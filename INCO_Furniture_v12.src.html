@@ -13186,7 +13186,18 @@ function manualEditorSave() {
     // no imported rows).
     for (const v of validated) {
       if (v && v.data && v.data.content) {
+        // Stamp the fresh pre-injection raw FIRST.  The export-time label
+        // rebake (_rebakeBlockLabels) regenerates p.content from
+        // p._rawContent; without this stamp, the object spread below kept
+        // the pre-edit optimizer raw on the panel and the export silently
+        // reverted the manual layout (wrong cuts + missing pieces on the
+        // saw — the reported 5→4-panel incident).
+        v.data._rawContent = v.data.content;
         v.data.content = _injectCodesIntoTxt(v.data.content, b);
+      } else if (b.panels[v.idx] && b.panels[v.idx]._rawContent) {
+        // No fresh content for this slot — make sure no stale raw can
+        // resurrect an outdated layout at export time.
+        delete b.panels[v.idx]._rawContent;
       }
       b.panels[v.idx] = { ...(b.panels[v.idx] || {}), ...v.data, _splitInfo: v.splitInfo };
     }
@@ -13856,15 +13867,74 @@ async function runOptimizer(bid) {
 // When comments are unchanged this reproduces the exact bytes the optimize-
 // time injection produced (same raw + same rows + same queue), so PDF orders
 // and already-correct manual orders are unaffected.
+// Staleness guard for the rebake: TRUE only when the pristine raw's [Dati]
+// piece multiset matches the panel's CURRENT strips.  The strips are the
+// authoritative geometry (they drive the 2D preview and the manual editor),
+// so a mismatch means the raw predates a layout change (e.g. an order
+// manually edited before the editor stamped fresh raws) — rebaking from it
+// would revert the saw program to the outdated layout.  Rotation-agnostic
+// (min×max dim keys), qty-exact.
+function _rawMatchesStrips(p) {
+  if (!p || !p._rawContent || !Array.isArray(p.strips)) return false;
+  try {
+    const key = (w, h) => {
+      const a = Math.round(parseFloat(w)), c = Math.round(parseFloat(h));
+      return a <= c ? a + 'x' + c : c + 'x' + a;
+    };
+    // Multiset from the raw's consolidated [Dati] lines.
+    const rawCounts = new Map();
+    let inDati = false;
+    for (const line of String(p._rawContent).split(/\r?\n/)) {
+      if (line === '[Dati]') { inDati = true; continue; }
+      if (inDati && line.startsWith('[')) break;
+      if (!inDati) continue;
+      const m = line.match(/^\d+=,,(\d+),CuttElab,,\d+,(\d+(?:\.\d+)?),(\d+(?:\.\d+)?),/);
+      if (!m) continue;
+      const k = key(m[2], m[3]);
+      rawCounts.set(k, (rawCounts.get(k) || 0) + parseInt(m[1]));
+    }
+    // Multiset from the panel's strips (both modes + legacy single offcut).
+    const stripCounts = new Map();
+    const bump = (w, h, q) => {
+      const k = key(w, h);
+      stripCounts.set(k, (stripCounts.get(k) || 0) + q);
+    };
+    for (const st of p.strips) {
+      if (p.mode === 'X') {
+        if (st.uQty) bump(st.stripW, st.uPh, st.uQty);
+        for (const vb of (st.vBars || [])) if (vb.vQty) bump(vb.vPw, vb.barH, vb.vQty);
+      } else {
+        for (const c of (st.primaryCuts || [])) if (c.qty) bump(c.pw, st.stripH, c.qty);
+        const offs = Array.isArray(st.offcuts) ? st.offcuts
+          : st.offcut ? [{ xPw: st.offcut.xPw,
+                           uCuts: [{ uPh: st.offcut.uPh, uQty: st.offcut.uQty }] }]
+          : [];
+        for (const oc of offs) {
+          for (const u of (oc.uCuts || [])) if (u.uQty) bump(oc.xPw, u.uPh, u.uQty);
+        }
+      }
+    }
+    if (rawCounts.size !== stripCounts.size) return false;
+    for (const [k, v] of rawCounts) if (stripCounts.get(k) !== v) return false;
+    return true;
+  } catch (e) { return false; }
+}
+
 function _rebakeBlockLabels(b) {
   if (!b || !Array.isArray(b.panels) || b.panels.length === 0) return;
   let queue;
   try { queue = _buildImportQueueForGroup(_siblingBlocks(b)); }
   catch (e) { return; }   // can't rebuild the queue → keep existing content
   for (const p of b.panels) {
-    if (p && p._rawContent) {
+    // Rebake ONLY when the raw still describes this panel's actual strips.
+    // A stale raw (layout changed since it was stamped) is dropped so it
+    // can never overwrite the stored content — which at that point is the
+    // manual-edit truth — with an outdated cut program.
+    if (p && p._rawContent && _rawMatchesStrips(p)) {
       try { p.content = _injectCodesIntoTxt(p._rawContent, b, queue); }
       catch (e) { /* keep existing p.content on any failure */ }
+    } else if (p && p._rawContent) {
+      delete p._rawContent;
     }
     if (p && p._splitInfo && Array.isArray(p._splitInfo.parts)) {
       for (const part of p._splitInfo.parts) {

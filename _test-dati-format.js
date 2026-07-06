@@ -16,10 +16,11 @@ const code =
   extract('function _buildImportQueueForGroup', 'function _buildImportQueueForBlock') +
   extract('function _buildImportQueueForBlock', '// Per-block label-printing gate') +
   extract('function _fixupManualSubLabels', 'function _stripLabelRefsIfDisabled') +
-  extract('function _injectCodesIntoTxt', 'function _meGenFileContent');
+  extract('function _injectCodesIntoTxt', 'function _meGenFileContent') +
+  extract('function _rawMatchesStrips', 'function downloadFile');
 
-const makeFns = new Function('document', 'blocks', 'loadPrices',
-  code + '\nreturn { _buildImportQueueForGroup, _buildImportQueueForBlock, _injectCodesIntoTxt, _fixupManualSubLabels };');
+const makeFns = new Function('document', 'blocks', 'loadPrices', '_siblingBlocks',
+  code + '\nreturn { _buildImportQueueForGroup, _buildImportQueueForBlock, _injectCodesIntoTxt, _fixupManualSubLabels, _rawMatchesStrips, _rebakeBlockLabels };');
 
 // ── Shared stubs ─────────────────────────────────────────────────────
 const docStub = {
@@ -370,6 +371,77 @@ function expectEq(label, actual, expected) {
   // Square piece — same positional rule.
   expectEq('square piece → positional',
     bands(inj({ l: '500', g: '500', s: '1', ag: '2', as_: '1' }, rawOne(500, 500))), 'B|B|B|');
+}
+
+// ── Scenario 9: manual-edit vs rebake (the 5→4 panel incident) ───────
+// The export-time rebake regenerates p.content from p._rawContent.  If a
+// manual-editor save leaves a STALE raw on the panel (pre-fix behavior),
+// the export silently reverts the manual layout — wrong cuts + missing
+// pieces on the saw.  Two defenses under test:
+//   (a) _rawMatchesStrips guard: a raw whose [Dati] piece multiset doesn't
+//       match the panel's current strips must NOT be rebaked (stored
+//       manual content is kept verbatim, stale raw dropped);
+//   (b) fresh-raw path: when the raw matches the strips, rebake works and
+//       picks up current row comments (the feature the raw exists for).
+{
+  // OLD layout: 1200×900 ×2 + 412×180 ×1  (matches the shared RAW fixture)
+  const stripsOLD = [{
+    stripH: 900,
+    primaryCuts: [{ typeId: 1, pw: 1200, ph: 900, qty: 2 }],
+    offcuts: [{ xPw: 412, ru: 10, uCuts: [{ typeId: 2, uPh: 180, uQty: 1 }] }],
+  }];
+  // NEW manual layout: 412×180 replaced by 600×300
+  const stripsNEW = [{
+    stripH: 900,
+    primaryCuts: [{ typeId: 1, pw: 1200, ph: 900, qty: 2 }],
+    offcuts: [{ xPw: 600, ru: 10, uCuts: [{ typeId: 2, uPh: 300, uQty: 1 }] }],
+  }];
+  const RAW_NEW = RAW
+    .replace('2=,,1,CuttElab,,1,412.00,180.00,18.00,,0,1',
+             '2=,,1,CuttElab,,1,600.00,300.00,18.00,,0,1')
+    .replace('5=X,412.000000,1,0.000000,0.000000,0.000000,0.000000',
+             '5=X,600.000000,1,0.000000,0.000000,0.000000,0.000000');
+
+  const block = {
+    id: 1, materialId: 'm1', formatId: 'f1',
+    rows: [ { l: '1200', g: '900', s: '2', koment: 'Anesore' },
+            { l: '600',  g: '300', s: '1', koment: 'Nicja' } ],
+    panels: [],
+  };
+  const sibStub = (bb) => [bb];
+  const fns = makeFns(docStub, [block], pricesStub, sibStub);
+  console.log('Scenario 9 — manual edit vs export rebake:');
+
+  // Guard unit checks.
+  expectEq('raw matches its own strips', String(
+    fns._rawMatchesStrips({ _rawContent: RAW, strips: stripsOLD, mode: 'Y' })), 'true');
+  expectEq('stale raw vs edited strips → mismatch', String(
+    fns._rawMatchesStrips({ _rawContent: RAW, strips: stripsNEW, mode: 'Y' })), 'false');
+
+  // (a) Incident replay: stale raw + manual content — rebake must not touch it.
+  const MANUAL_SENTINEL = '[Intestazione]\r\nMANUAL-LAYOUT-TRUTH';
+  const pStale = { content: MANUAL_SENTINEL, _rawContent: RAW, strips: stripsNEW, mode: 'Y' };
+  block.panels = [pStale];
+  fns._rebakeBlockLabels(block);
+  expectEq('stale raw: manual content preserved', pStale.content, MANUAL_SENTINEL);
+  expectEq('stale raw: dropped from panel', String(pStale._rawContent === undefined), 'true');
+
+  // (b) Fresh raw (post-fix editor save): rebake regenerates from it and
+  //     carries the current komente into field 5.
+  const pFresh = { content: 'WILL-BE-REPLACED', _rawContent: RAW_NEW, strips: stripsNEW, mode: 'Y' };
+  block.panels = [pFresh];
+  fns._rebakeBlockLabels(block);
+  const freshDati = getDati(pFresh.content);
+  expectEq('fresh raw: new 600×300 piece present with koment', freshDati[2],
+    '3=,,1,CuttElab,Erion Gjokeja/119,,MDF Bardhe Shqeto 18mm,Nicja,600,300,18,,,#119-1,,,,');
+
+  // Source-level tripwire: the manual-editor save must stamp the fresh raw
+  // BEFORE injecting codes, so future refactors can't silently reintroduce
+  // the stale-raw bug.
+  const saveIdx = html.indexOf('v.data._rawContent = v.data.content;');
+  const injIdx  = html.indexOf('v.data.content = _injectCodesIntoTxt(v.data.content, b);');
+  expectEq('editor save stamps fresh _rawContent before injection',
+    String(saveIdx > -1 && injIdx > -1 && saveIdx < injIdx), 'true');
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
