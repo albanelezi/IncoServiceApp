@@ -5724,7 +5724,37 @@ function validateOrder() {
   return false;
 }
 
+// Re-entrancy-safe save wrapper.  Root cause of the duplicate-order reports
+// ("Alban 100 AND Alban 101" from one click-through): the save is async —
+// two counter transactions + a batch write, easily seconds on a workshop
+// connection — and window._editingOrderId is only set at the very END of a
+// successful new-order save.  A second invocation entering mid-flight
+// (double-click on Ruaj, or Ruaj followed quickly by Printo/Shkarko —
+// which all save first) saw _editingOrderId still null and allocated a
+// SECOND id + fatura for the same form → two identical orders with
+// consecutive numbers.
+//
+// The wrapper serializes: while one save is in flight, every further call
+// returns THAT save's promise — a second allocation is structurally
+// impossible.  Once it settles, _editingOrderId is set, so any later save
+// is an edit of the same order.  Save/print/download buttons are disabled
+// for the duration as visible feedback.
+window._saveOrderInFlight = null;
 async function saveOrderToStorage() {
+  if (window._saveOrderInFlight) return window._saveOrderInFlight;
+  const btns = document.querySelectorAll(
+    'button[onclick*="saveOrderToStorage"], button[onclick*="shkarkoDokumentet"], ' +
+    'button[onclick*="printoDokumentin"], button[onclick*="shkarkoWincut"]');
+  btns.forEach(b => { b.disabled = true; b.style.opacity = '.55'; });
+  const run = _saveOrderToStorageInner().finally(() => {
+    window._saveOrderInFlight = null;
+    btns.forEach(b => { b.disabled = false; b.style.opacity = ''; });
+  });
+  window._saveOrderInFlight = run;
+  return run;
+}
+
+async function _saveOrderToStorageInner() {
   // Defense in depth: the Ruaj button is hidden by CSS when the order is
   // read-only (delivered, or partner-view-only from kanban), but a quick
   // devtools click on saveOrderToStorage() could still fire.  Bail early.

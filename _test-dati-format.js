@@ -444,5 +444,54 @@ function expectEq(label, actual, expected) {
     String(saveIdx > -1 && injIdx > -1 && saveIdx < injIdx), 'true');
 }
 
-console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
-process.exit(failures ? 1 : 0);
+// ── Scenario 10: save re-entrancy guard (duplicate-order bug) ────────
+// saveOrderToStorage allocates id+fatura over several awaits and only
+// marks the order as "editing" at the END — so two overlapping calls
+// (double-click, or Ruaj followed fast by Printo/Shkarko) each allocated
+// a fresh id → two identical orders ("Alban 100" + "Alban 101").  The
+// wrapper must dedupe: overlapping calls share ONE in-flight save; a call
+// after settle saves again (edit path by then).
+(async () => {
+  const saveWrapCode = extract('// Re-entrancy-safe save wrapper',
+                               'async function _saveOrderToStorageInner');
+  const makeSave = new Function('window', 'document', '_saveOrderToStorageInner',
+    saveWrapCode + '\nreturn saveOrderToStorage;');
+  console.log('Scenario 10 — save re-entrancy guard:');
+
+  let calls = 0;
+  const inner = () => new Promise(res => {
+    calls++;
+    const n = calls;
+    setTimeout(() => res('saved-' + n), 30);
+  });
+  const winStub = {};
+  const docStub2 = { querySelectorAll: () => [] };
+  const save = makeSave(winStub, docStub2, inner);
+
+  // Two overlapping calls → inner runs ONCE, both get the same result.
+  const [r1, r2] = await Promise.all([save(), save()]);
+  expectEq('overlapping saves run the inner save once', String(calls), '1');
+  expectEq('both callers receive the same save result',
+    String(r1 === 'saved-1' && r2 === 'saved-1'), 'true');
+
+  // Triple-click burst → still one save.
+  const [r3, r4, r5] = await Promise.all([save(), save(), save()]);
+  expectEq('burst of 3 clicks → one more save total', String(calls), '2');
+  expectEq('burst shares one result',
+    String(r3 === 'saved-2' && r4 === 'saved-2' && r5 === 'saved-2'), 'true');
+
+  // After settle, a new save runs (edit path in production by then).
+  const r6 = await save();
+  expectEq('post-settle call saves again', r6, 'saved-3');
+
+  // In-flight flag cleared even when the save REJECTS (network error).
+  const failing = makeSave({}, docStub2,
+    () => Promise.reject(new Error('rrjeti')));
+  let threw = false;
+  try { await failing(); } catch (e) { threw = true; }
+  const okAfter = makeSave({}, docStub2, () => Promise.resolve('ok'));
+  expectEq('rejected save propagates the error', String(threw), 'true');
+
+  console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
+  process.exit(failures ? 1 : 0);
+})();
