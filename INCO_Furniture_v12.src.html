@@ -6476,20 +6476,29 @@ document.addEventListener('DOMContentLoaded', () => {
   if (em) em.addEventListener('keydown', handler);
   if (pw) pw.addEventListener('keydown', handler);
 
-  // Caps Lock warning on the password field.  getModifierState is only
-  // reliable on keyboard events, so the state is checked on every
-  // keydown/keyup while the field is focused (keyup catches the Caps Lock
-  // key itself being toggled).  Hidden again on blur — the state can
-  // change while focus is elsewhere, so a stale warning would mislead.
+  // Caps Lock warning on the password field.  The state can only be read
+  // from keyboard events (no direct query API), so track the LAST-KNOWN
+  // state globally — typing the email already reveals it — and show the
+  // warning as soon as the password field gains focus, not only on the
+  // first keystroke inside it.  keydown+keyup both update the tracker
+  // (keyup catches the Caps Lock key itself, incl. the macOS off-toggle
+  // quirk); the warning renders only while the password field is focused.
   const capsWarn = document.getElementById('login-caps-warn');
   if (pw && capsWarn) {
-    const updateCaps = (e) => {
-      if (!e.getModifierState) return;
-      capsWarn.style.display = e.getModifierState('CapsLock') ? 'block' : 'none';
+    let capsOn = false;
+    const sync = () => {
+      capsWarn.style.display =
+        (capsOn && document.activeElement === pw) ? 'block' : 'none';
     };
-    pw.addEventListener('keydown', updateCaps);
-    pw.addEventListener('keyup', updateCaps);
-    pw.addEventListener('blur', () => { capsWarn.style.display = 'none'; });
+    const track = (e) => {
+      if (!e.getModifierState) return;
+      capsOn = e.getModifierState('CapsLock');
+      sync();
+    };
+    document.addEventListener('keydown', track, true);
+    document.addEventListener('keyup', track, true);
+    pw.addEventListener('focus', sync);
+    pw.addEventListener('blur', sync);
   }
 });
 
