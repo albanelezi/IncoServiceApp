@@ -25,14 +25,24 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 // Minimum trim allowed inside a strip's sub-strip (RU/RV). The panel-edge
-// trim (RX/RY) is the user-set value (typically 15 mm). Inside a strip the
-// saw can run a tighter trim — Cutty drops to 1.5-5 mm on dense panels —
-// because the sub-strip is already separated from the panel edge. We use
-// 5 mm as a conservative minimum that's well above the saw operator's safe
-// floor (2.4 mm per the original spec). The default RU stays at trimSub
+// trim (RX/RY) is the user-set value. The default RU stays at trimSub
 // (= panel-edge trim) and only drops to MIN_INNER_TRIM when a piece would
-// otherwise not fit, mirroring Cutty's "default + dynamic shrink" behavior.
-const MIN_INNER_TRIM = 5;
+// otherwise not fit ("default + dynamic shrink").
+//
+// This was 5 mm, which produced ZERO-SLACK third-level cuts: a 443-tall
+// piece placed in a 448-tall sub-strip with a 5 mm trim — 5 + 443 = 448
+// exactly, no margin. The shop saw's import trim (WinCut Rifilo) is 10 mm,
+// and a short sub-strip physically can't be gripped and trimmed at less
+// than ~10 mm, so the saw over-trimmed to ~10 and the piece came out 438 —
+// 5 mm short (Erion Gjokeja/125, panel 2, the five "Lisho" 443 pieces).
+//
+// Raised to 10 so our specified inner trim never undershoots what the saw
+// actually removes: a piece is only placed in a sub-strip when it fits with
+// a >= 10 mm trim, so the geometry the file asks for is the geometry the saw
+// can deliver. Cost: marginally less dense packing on rare exact-fit cases;
+// correctness over density. (The tiebreak also picks trimSub first, so when
+// trimSub itself is 10 the inner trim simply equals the panel-edge trim.)
+const MIN_INNER_TRIM = 10;
 
 // Return the orientation pairs to try for a piece. Grain-locked pieces are
 // pinned to W-along-X (the first dimension always), per the "Ruaj Ujerat"

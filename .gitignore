@@ -1,12 +1,9 @@
-# Dependencies — restored with `npm install` inside functions/
 functions/node_modules/
-
-# Firebase CLI local state
 .firebase/
 firebase-debug.log
 firebase-debug.*.log
 *.log
-
-# OS noise
 Thumbs.db
 .DS_Store
+functions/_baseline_index_full.js
+functions/_baseline_v2_strip_packer.js
