@@ -1209,9 +1209,18 @@ function assertWincutRowsValid(rows, ctx) {
 
 function genFileContent(panelL, panelW, panelT, supplier, rows, snap, velR, velA) {
   assertWincutRowsValid(rows, 'genFileContent');
+  // AltPacco = pack height (how tall a stack of boards this program cuts).
+  // It was hardcoded to 90 mm = five 18 mm boards, which told the saw the
+  // program was meant for a stacked pack — so on identical pieces it offered
+  // to "put N panels on top of each other", producing N pieces but firing
+  // ONE label (the CNC then can't route the unlabeled duplicates). Every
+  // program we emit is a SINGLE-board layout (each piece placed once), so
+  // AltPacco must equal the board thickness (Spessore) — a single board, no
+  // stacking. AltPacco does not affect any cut position (those are the X/U
+  // values), so this changes no piece dimension.
   const lines = ['[Intestazione]', `Descrizione=${supplier}`, `TipoMateriale=${supplier}_1`,
     `Lunghezza=${panelL}.000000`, `Larghezza=${panelW}.000000`, `Spessore=${panelT}.000000`,
-    'AltPacco=90.000000', `VelRotaz=${velR}`, `VelAvanz=${velA}.000000`,
+    `AltPacco=${panelT}.000000`, `VelRotaz=${velR}`, `VelAvanz=${velA}.000000`,
     '[Righe]', `NumeroRighe=${rows.length}`];
   rows.forEach((r, i) => lines.push(
     `${i+1}=${r.type},${(r.val||0).toFixed(6)},${r.qty||0},0.000000,0.000000,0.000000,0.000000`));
