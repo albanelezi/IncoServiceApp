@@ -970,7 +970,7 @@ body {
 /* ─── PROJECT INFO ───────────────────────────────────────────────── */
 .info-grid {
   display: grid;
-  grid-template-columns: 160px 1fr 200px;
+  grid-template-columns: 160px 1fr 1fr 200px;
   gap: 16px;
 }
 @media (max-width: 900px) {
@@ -3265,6 +3265,8 @@ body.hide-prices .col-totali { display: none !important; }
           </div>
           <div class="field"><label>Klienti</label><input id="klienti" type="text" placeholder="Emri i klientit" readonly
             style="background:var(--surface3,#eef0f4);border:1px solid var(--border);border-radius:7px;color:var(--text2,#5a5f73);cursor:default;"></div>
+          <div class="field"><label>Shënim Klienti</label><input id="klient-note" type="text" maxlength="140" placeholder="Shënim (opsional)"
+            style="border-radius:7px;"></div>
           <div class="field"><label>Data</label><input id="data" type="date" readonly
             style="background:var(--surface3,#eef0f4);border:1px solid var(--border);border-radius:7px;color:var(--text2,#5a5f73);cursor:default;"></div>
         </div>
@@ -3932,7 +3934,13 @@ function fullFingerprint(order) {
             : (r.doubledSides && r.doubledSides.shkurter ? 1 : 0),
     })),
   }));
-  return JSON.stringify(blocks);
+  // Include the free-text customer note (an editable header field) so an
+  // unsaved note isn't silently lost by the navigate-away guard. Read from
+  // the DOM so both the baseline and the live check reflect the field's
+  // value at their call time.
+  const _noteFp = (typeof document !== 'undefined' && document.getElementById('klient-note'))
+    ? (document.getElementById('klient-note').value || '').trim() : '';
+  return JSON.stringify({ note: _noteFp, blocks });
 }
 
 // True iff the current `blocks` differ from the baseline captured on
@@ -5482,6 +5490,8 @@ async function openOrder(id, opts) {
   const displayFatura = order.fatura ? String(order.fatura) : String(order.id);
   document.getElementById('nr-fatura').value = displayFatura;
   document.getElementById('data').value = order.data || '';
+  const _noteEl = document.getElementById('klient-note');
+  if (_noteEl) _noteEl.value = order.klientNote || '';
   document.getElementById('order-breadcrumb').textContent = `${liveKlientName} — #${displayFatura}`;
   // renderBlocks (called above) reads the fatura from the input to build the
   // per-block sub-number badge "#<fatura>-N", but the input was still empty
@@ -5630,6 +5640,8 @@ function resetOrderForm() {
   if(driftEl) driftEl.remove();
   updateAddButtons(); renderBlocks();
   document.getElementById('klienti').value = '';
+  const _noteReset = document.getElementById('klient-note');
+  if (_noteReset) _noteReset.value = '';
   document.getElementById('data').value = new Date().toISOString().split('T')[0];
 }
 
@@ -5806,6 +5818,8 @@ async function _saveOrderToStorageInner() {
     klient_id:   klientId,
     fatura,                        // overridden for new orders below
     data,
+    // Free-text per-order customer note (shown on the order form + PDF header).
+    klientNote: (document.getElementById('klient-note')?.value || '').trim(),
     total: Math.round(total),
     blocks: stripTransientFromBlocks(blocks),
     blockIdCtr,
@@ -14356,12 +14370,29 @@ function drawPdfHeader(doc, klienti, fatura, data, title) {
   doc.setTextColor(30,30,40);
   doc.text(`Klienti: ${klienti}   |   Fatura: #${fatura}   |   Data: ${data}`, W-mg, 22, {align:'right'});
 
+  // Customer note — free-text, read from the form the same way the logo is.
+  // Rendered below the meta line (italic, muted); wraps if long and pushes
+  // the separator down so it never collides. Nothing shown when empty.
+  let sepY = 30;
+  try {
+    const noteEl = document.getElementById('klient-note');
+    const note = noteEl ? (noteEl.value || '').trim() : '';
+    if (note) {
+      doc.setFont('helvetica','italic');
+      doc.setFontSize(8);
+      doc.setTextColor(90,90,105);
+      const noteLines = doc.splitTextToSize('Shënim: ' + note, W - 2*mg - 40);
+      doc.text(noteLines, W-mg, 27, {align:'right'});
+      sepY = 27 + noteLines.length * 3.6 + 2.4;
+    }
+  } catch(e) {}
+
   // Thin separator line
   doc.setDrawColor(210,210,218);
   doc.setLineWidth(0.4);
-  doc.line(mg,30,W-mg,30);
+  doc.line(mg,sepY,W-mg,sepY);
 
-  return 36;
+  return sepY + 6;
 }
 
 // ── SHARED TABLE HELPER ────────────────────────────────────────────
@@ -14591,7 +14622,10 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
     drawPdfHeader(doc, klienti, fatura, data, 'DOKUMENT MATERIALESH');
     return this;
   };
-  const Y_AFTER_HEADER = 36;
+  // Header height is deterministic (same note on every page), so the first
+  // draw's return is where content starts on ALL pages — a wrapped customer
+  // note pushes both the first page and every page-break down together.
+  const Y_AFTER_HEADER = y;
 
   // When `onlyBlockId` is supplied, render just the targeted materials.
   // Accepts either a single block id (existing "Printo Dokumentin" per-block
