@@ -2873,7 +2873,7 @@ body.hide-prices #grand-total-bar,
 body.hide-prices .col-totali { display: none !important; }
 </style>
 </head>
-<body class="hide-prices">
+<body>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- LOGIN OVERLAY (Pass A) — gates the app behind Firebase Auth      -->
@@ -3239,7 +3239,9 @@ body.hide-prices .col-totali { display: none !important; }
       <button class="btn btn-ghost btn-sm" onclick="goPage('pg-home')">← Kthehu</button>
       <button class="btn btn-sm" id="btn-optimize-all" onclick="onOptimizeAllClick()" style="background:#2c6fc9;color:#fff" disabled><span id="opt-all-icon">⚙</span> <span id="opt-all-label">Optimizo të gjitha</span></button>
       <button class="btn btn-sm" id="btn-shkarko" onclick="shkarkoDokumentet()" style="background:#1a4a8c;color:#fff">&#128230; Shkarko Dokumentet</button>
-      <button class="btn btn-sm" id="btn-printo" onclick="printoDokumentin()" style="background:#0e7a59;color:#fff">&#128424; Printo Dokumentin</button>
+      <button class="btn btn-sm" id="btn-printo" onclick="printoDokumentin()" style="background:#1a4a8c;color:#fff">&#128424; Printo Dokumentin</button>
+      <button class="btn btn-sm" id="btn-shkarko-fatura" onclick="shkarkoFaturen()" style="background:#7c3aed;color:#fff">&#129534; Shkarko Faturën</button>
+      <button class="btn btn-sm" id="btn-printo-fatura" onclick="printoFaturen()" style="background:#7c3aed;color:#fff">&#128424; Printo Faturën</button>
       <button class="btn btn-sm" id="btn-shkarko-wincut" onclick="shkarkoWincut()" style="background:#2c6fc9;color:#fff">&#128193; Shkarko WINCUT</button>
       <button class="btn btn-sm" id="btn-fshi-porosine" onclick="deleteOrderFromDetail()" style="background:#dc2626;color:#fff;display:none">🗑 Fshi Porosinë</button>
       <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="saveOrderToStorage()">💾 Ruaj Porosinë</button>
@@ -3528,7 +3530,7 @@ body.hide-prices .col-totali { display: none !important; }
       <span class="gtb-val" id="gtb-v-cutting">0 Lek</span>
     </div>
     <div class="gtb-item" id="gtb-tenie">
-      <span class="gtb-lbl">Tenie</span>
+      <span class="gtb-lbl">Bordim</span>
       <span class="gtb-val" id="gtb-v-tenie">0 Lek</span>
     </div>
     <div class="gtb-item" id="gtb-painting">
@@ -3549,12 +3551,17 @@ body.hide-prices .col-totali { display: none !important; }
 
 <script>
 
-// TEMPORARY: hide all prices across the operational UI + skip the invoice
-// PDF.  Flip to `false` (and remove the `hide-prices` class from <body>) to
-// restore the previous behaviour.  Settings/Konfigurim pages still show
-// prices for input — only the order list / order detail / kanban / invoice
-// PDF are affected.
-const HIDE_PRICES = true;
+// Global price-display gate. Prices are ON: each material section carries its
+// own prices (panel/cut/boarding/painting) and totals show across the order
+// list, order detail, kanban, and the invoice PDF.  Flip to `true` (and add the
+// `hide-prices` class back on <body>) to hide all prices again.
+const HIDE_PRICES = false;
+
+// Konfigurim price-drift signalling is obsolete in the per-section pricing
+// model: prices live on each block and are frozen with the order, so there is
+// no global Konfigurim value to "drift" from. Kept as a flag so the old drift
+// banner/icon code stays inert without being deleted.
+const SHOW_PRICE_DRIFT = false;
 
 // ═══════════════════════════════════════════════════════════════
 // LAZY SCRIPT LOADER (for jsPDF + JSZip)
@@ -3911,12 +3918,22 @@ function fullFingerprint(order) {
     // must count as an edit so the operator can't accidentally lose the
     // "labels off" choice by navigating away.
     printLabels: b.printLabels !== false,
+    // Per-section prices — editing a price is an unsaved change the operator
+    // shouldn't lose. Intentionally absent from structuralFingerprint: a price
+    // tweak is not structural rework, so it must NOT bump a 'perfunduar' order
+    // back to 'procesim'.
+    priceP:     b.priceP     || 0,
+    priceCut:   b.priceCut   || 0,
+    priceBoard: b.priceBoard || 0,
+    pricePaint: b.pricePaint || 0,
     rows: (b.rows || []).map(r => ({
       l: r.l, g: r.g, s: r.s,
       ag: r.ag || 0, as_: r.as_ || 0,
       anen: r.anen || '',
       lyerje:     !!r.lyerje,
       frezim:     !!r.frezim,
+      // Per-row frezim price — an unsaved-change trigger (but not structural).
+      frezimPrice: r.frezimPrice || 0,
       fromDopjim: !!r.fromDopjim,
       parent: r.parentRowId == null ? null : r.parentRowId,
       side:   r.side || null,
@@ -5027,9 +5044,9 @@ function applyOrderDriftBanner(order) {
   const existing   = document.getElementById('order-drift-banner');
   if(existing) existing.remove();
   if(!order) return;
-  // Prices are hidden globally — drift warnings are price-driven, so suppress
-  // the banner entirely while HIDE_PRICES is on.
-  if (typeof HIDE_PRICES !== 'undefined' && HIDE_PRICES) return;
+  // Prices now live per-section and freeze with the order, so there is no
+  // Konfigurim value to drift from — the banner is obsolete. Kept inert.
+  if (typeof SHOW_PRICE_DRIFT === 'undefined' || !SHOW_PRICE_DRIFT) return;
   const drift = detectKonfigDrift(order);
   if(!drift.drifted) return;
   if(!breadcrumb || !breadcrumb.parentElement) return;
@@ -5292,12 +5309,11 @@ function renderOrdersTable(list) {
     // Prefer current klient name (handles renames). Fall back to snapshot if
     // klient was deleted (cascade-delete should also remove orders, but be safe).
     const liveName = (p.klient_id && klientById[p.klient_id]?.emri) || p.klient_emri || '—';
-    // ⚠ drift icon used to signal that an order's frozen prices differ from
-    // current Konfigurim. Prices are hidden globally (HIDE_PRICES), so the
-    // icon is suppressed — it's noise the operator can't act on while the
-    // price UI is disabled. Re-enable automatically when HIDE_PRICES flips off.
+    // ⚠ drift icon flagged orders whose frozen prices differed from
+    // Konfigurim. With per-section pricing there is no Konfigurim value to
+    // drift from, so the icon stays off (gated on SHOW_PRICE_DRIFT).
     let driftIcon = '';
-    if (typeof HIDE_PRICES === 'undefined' || !HIDE_PRICES) {
+    if (typeof SHOW_PRICE_DRIFT !== 'undefined' && SHOW_PRICE_DRIFT) {
       const drift = detectKonfigDrift(p);
       if(drift.drifted) {
         const tip = ('Çmimet kanë ndryshuar që kur kjo porosi u ruajt:\n• ' + drift.reasons.join('\n• '))
@@ -5367,6 +5383,13 @@ async function openOrder(id, opts) {
     // material.  No optimizer/.txt re-run required; the stored panel content
     // is left as-is and only the OUTPUT bytes are tweaked.
     if(b.printLabels == null) b.printLabels = true;
+    // Per-section price backfill for orders saved before per-section pricing.
+    // Panel price defaults to 0 (operator sets it); service rates get the shop
+    // defaults so an old order re-priced today matches a freshly created one.
+    if(b.priceP     == null) b.priceP     = 0;
+    if(b.priceCut   == null) b.priceCut   = 300;
+    if(b.priceBoard == null) b.priceBoard = 70;
+    if(b.pricePaint == null) b.pricePaint = 2200;
     delete b.tenieType;
     b.cfg = b.cfg || {};
     if(b.cfg.kerf  == null) b.cfg.kerf  = 4.4;
@@ -5757,7 +5780,8 @@ async function saveOrderToStorage() {
   if (window._saveOrderInFlight) return window._saveOrderInFlight;
   const btns = document.querySelectorAll(
     'button[onclick*="saveOrderToStorage"], button[onclick*="shkarkoDokumentet"], ' +
-    'button[onclick*="printoDokumentin"], button[onclick*="shkarkoWincut"]');
+    'button[onclick*="printoDokumentin"], button[onclick*="shkarkoWincut"], ' +
+    'button[onclick*="shkarkoFaturen"], button[onclick*="printoFaturen"]');
   btns.forEach(b => { b.disabled = true; b.style.opacity = '.55'; });
   const run = _saveOrderToStorageInner().finally(() => {
     window._saveOrderInFlight = null;
@@ -7575,6 +7599,14 @@ function addBlock(materialId, formatId) {
     cutDir: 'auto',
     tenieId: defaultTenieId,
     printLabels: true,   // per-block WinCut-label toggle (see openOrder backfill)
+    // Per-section prices (Lek). Entered directly on the material section — see
+    // calcBlockPrice / the price-inputs UI in renderBlock. Panel price starts
+    // empty (0) so the operator sets it per material; the service rates carry
+    // shop defaults but stay editable per section.
+    priceP:     0,     // panel price, Lek per board (copë)
+    priceCut:   300,   // cutting, Lek per panel
+    priceBoard: 70,    // boarding / edge-banding, Lek per meter (ml)
+    pricePaint: 2200,  // painting, Lek per m²
   };
   block.rows.push(makeRow(block));
   // Group-adjacent insertion: if any existing block shares this material+
@@ -8617,7 +8649,22 @@ function handleFrezim(bid, rid, checked) {
   const r = b.rows.find(x=>x.id===rid);
   if(!r) return;
   r.frezim = checked;
+  // Show/hide the per-row frezim price input (+ its "Lek" suffix) to match.
+  const priceEl = document.getElementById(`frezim-price-wrap-${bid}-${rid}`);
+  if(priceEl) priceEl.style.display = checked ? 'inline-flex' : 'none';
   // No need to recalc dimensions — just refresh price.
+  updateBlockPrice(b);
+  updateGrandTotal();
+}
+
+// Per-row frezim price (Lek per piece). Stored on the row; recompute totals.
+function handleFrezimPrice(bid, rid, val) {
+  const b = blocks.find(x=>x.id===bid);
+  if(!b) return;
+  const r = b.rows.find(x=>x.id===rid);
+  if(!r) return;
+  const num = parseFloat(val);
+  r.frezimPrice = isFinite(num) ? num : 0;
   updateBlockPrice(b);
   updateGrandTotal();
 }
@@ -9080,65 +9127,67 @@ function fmtALL(n) {
 }
 
 function calcBlockPrice(b) {
-  // v12: when editing a saved order, prices come from its frozen snapshot
-  // (so a Konfigurim price change doesn't silently mutate already-saved
-  // orders). For new orders, snapshot is null and these helpers fall through
-  // to live Konfigurim values.
-  const svc          = getEffectiveServicePrices();
-  const panelPrice   = getEffectiveMaterialPrice(b);
-  const cutPrice     = svc.cutting;
-  const { price22, price28, price40, price56 } = getEffectiveTeniePricesForBlock(b);
-  const paintPrice   = svc.painting;
-  const frezimPrice  = svc.frezim;
+  // Per-section pricing: every price comes straight off the block (entered in
+  // the material section's price inputs). Nothing is read from Konfigurim, and
+  // because the prices are stored on the block they are frozen with the order
+  // automatically — no snapshot/drift layer needed.
+  const panelPrice = parseFloat(b.priceP)     || 0;   // Lek / board
+  const cutPrice   = parseFloat(b.priceCut)   || 0;   // Lek / panel
+  const boardRate  = parseFloat(b.priceBoard) || 0;   // Lek / ml (flat, all edges)
+  const paintPrice = parseFloat(b.pricePaint) || 0;   // Lek / m²
 
   // panels used = b.panels.length if optimized, else 0.
   // nPanels (the COUNT) stays the same for every sibling so each section's
   // totals strip shows the actual shared-panel count.  The COST (pPanels +
   // pCut) is charged only to the first sibling in blocks[] iteration order
   // so the grand total isn't double-counted across the group — the panels
-  // and cuts only physically happen once for the shared optimization.
+  // and cuts only physically happen once for the shared optimization. Panel
+  // price is mirrored across siblings (handleBlockPriceChange), so the primary
+  // carries the group's agreed board price.
   const nPanels  = b.panels ? b.panels.length : 0;
   const _sibs = (typeof _siblingBlocks === 'function') ? _siblingBlocks(b) : [b];
   const _isPrimary = _sibs.length === 0 || _sibs[0].id === b.id;
   const pPanels  = _isPrimary ? nPanels * panelPrice : 0;
   const pCut     = _isPrimary ? nPanels * cutPrice   : 0;
-  const hasTenieMat = blockHasTenie(b);
-  const pTenie22 = hasTenieMat ? (b.totML22||0) * price22 : 0;
-  const pTenie28 = hasTenieMat ? (b.totML28||0) * price28 : 0;
-  const pTenie40 = hasTenieMat ? (b.totML40||0) * price40 : 0;
-  const pTenie56 = hasTenieMat ? (b.totML56||0) * price56 : 0;
-  const pTenie   = pTenie22 + pTenie28 + pTenie40 + pTenie56;
+  // Boarding (Bordim): one flat rate × total edge-band meters (all tiers
+  // combined into b.totML).  Charged per section (each section owns its ml).
+  const pBoard   = blockHasTenie(b) ? (b.totML||0) * boardRate : 0;
   const pPaint   = blockHasM2(b)    ? ((b.totM2sip||0)+(b.totM2ans||0)) * paintPrice : 0;
-  // Frezim: applies only to non-fiber MDF/Lis blocks. Cost = price * total copë on rows where frezim is checked.
-  let nFrezimPieces = 0;
+
+  // Frezim (milling): per-ROW price × that row's piece count, summed over rows
+  // with frezim checked. Each row carries its own r.frezimPrice (entered next
+  // to the frezim checkbox). Only non-fiber MDF/Lis blocks expose frezim.
+  let pFrezim = 0, nFrezimPieces = 0;
   if(blockHasFrezim(b)) {
     for(const r of b.rows) {
-      if(r.frezim) nFrezimPieces += parseInt(r.s)||0;
+      if(!r.frezim) continue;
+      const cope = parseInt(r.s) || 0;
+      nFrezimPieces += cope;
+      pFrezim += (parseFloat(r.frezimPrice) || 0) * cope;
     }
   }
-  const pFrezim  = nFrezimPieces * frezimPrice;
-  const pTotal   = pPanels + pCut + pTenie + pPaint + pFrezim;
 
-  return { pPanels, pCut, pTenie, pTenie22, pTenie28, pTenie40, pTenie56, pPaint, pFrezim, pTotal, nPanels, nFrezimPieces };
+  const pTotal   = pPanels + pCut + pBoard + pPaint + pFrezim;
+
+  // pTenie kept as an alias of pBoard so legacy callers (grand-total bar id
+  // "gtb-v-tenie", updateGrandTotal) keep working without renames.
+  return { pPanels, pCut, pBoard, pTenie: pBoard, pPaint, pFrezim, pTotal, nPanels, nFrezimPieces };
 }
 
 function updateBlockPrice(b) {
   const bp = calcBlockPrice(b);
-  const { pPanels, pCut, pTenie22, pTenie28, pTenie40, pTenie56, pPaint, pFrezim, pTotal, nPanels } = bp;
+  const { pPanels, pCut, pBoard, pPaint, pTotal, nPanels } = bp;
   const s = id => document.getElementById(id);
 
   const setVal = (id, val) => { const el=s(id); if(el) el.innerHTML = fmtALL(val) + '<em>Lek</em>'; };
-  setVal(`bprice-panels-${b.id}`,  pPanels);
-  setVal(`bprice-cut-${b.id}`,     pCut);
-  setVal(`bprice-tenie22-${b.id}`, pTenie22 || 0);
-  setVal(`bprice-tenie28-${b.id}`, pTenie28 || 0);
-  setVal(`bprice-tenie40-${b.id}`, pTenie40 || 0);
-  setVal(`bprice-tenie56-${b.id}`, pTenie56 || 0);
-  setVal(`bprice-paint-${b.id}`,   pPaint);
-  setVal(`bprice-frezim-${b.id}`,  pFrezim);
-  setVal(`bprice-total-${b.id}`,   pTotal);
+  setVal(`bprice-panels-${b.id}`, pPanels);
+  setVal(`bprice-cut-${b.id}`,    pCut);
+  setVal(`bprice-board-${b.id}`,  pBoard);
+  setVal(`bprice-paint-${b.id}`,  pPaint);
+  setVal(`bprice-frezim-${b.id}`, bp.pFrezim);
+  setVal(`bprice-total-${b.id}`,  pTotal);
 
-  // Update panel count label "Pllaka (N)" on the (hidden) price strip
+  // Update panel count label "Pllaka (N)" on the price strip
   const panelLbl = s(`bprice-panels-lbl-${b.id}`);
   if(panelLbl) panelLbl.textContent = `Pllaka (${nPanels})`;
 
@@ -9149,35 +9198,90 @@ function updateBlockPrice(b) {
   const totPanelsEl = s(`tot-panels-${b.id}`);
   if(totPanelsEl) totPanelsEl.textContent = nPanels;
 
-  // Show/hide each tenie tier strip independently — only tiers with non-zero
-  // ml are shown. Keeps the price strip clean for orders that only use one
-  // or two tiers.
-  const hasTenieMaterial = blockHasTenie(b);
-  const tenie22El = s(`bprice-tenie22-wrap-${b.id}`);
-  const tenie28El = s(`bprice-tenie28-wrap-${b.id}`);
-  const tenie40El = s(`bprice-tenie40-wrap-${b.id}`);
-  const tenie56El = s(`bprice-tenie56-wrap-${b.id}`);
-  const paintEl   = s(`bprice-paint-wrap-${b.id}`);
-  const frezimEl  = s(`bprice-frezim-wrap-${b.id}`);
-  if(tenie22El) tenie22El.style.display = (hasTenieMaterial && (b.totML22||0) > 0) ? '' : 'none';
-  if(tenie28El) tenie28El.style.display = (hasTenieMaterial && (b.totML28||0) > 0) ? '' : 'none';
-  if(tenie40El) tenie40El.style.display = (hasTenieMaterial && (b.totML40||0) > 0) ? '' : 'none';
-  if(tenie56El) tenie56El.style.display = (hasTenieMaterial && (b.totML56||0) > 0) ? '' : 'none';
-  if(paintEl)   paintEl.style.display   = blockHasM2(b)    ? '' : 'none';
-  if(frezimEl)  frezimEl.style.display  = blockHasFrezim(b) ? '' : 'none';
+  // Boarding line only when the material takes edge-banding and has ml;
+  // painting line only when the material is painted; frezim line only when the
+  // material supports milling and some pieces are marked for it.
+  const boardEl  = s(`bprice-board-wrap-${b.id}`);
+  const paintEl  = s(`bprice-paint-wrap-${b.id}`);
+  const frezimEl = s(`bprice-frezim-wrap-${b.id}`);
+  if(boardEl)  boardEl.style.display  = (blockHasTenie(b) && (b.totML||0) > 0) ? '' : 'none';
+  if(paintEl)  paintEl.style.display  = blockHasM2(b) ? '' : 'none';
+  if(frezimEl) frezimEl.style.display = (blockHasFrezim(b) && bp.nFrezimPieces > 0) ? '' : 'none';
+
+  // Non-blocking "you forgot to set a price" cue: outline the empty inputs and
+  // show a small warning note. Never restricts actions — only flags.
+  applyBlockPriceWarnings(b);
+}
+
+// Which required prices are still unset for a block. "Required" = a price the
+// block will actually bill: panels + cut always; boarding when edge-banded
+// with ml; painting when painted; frezim for each milled row. Returns a list
+// of short Albanian labels (empty when nothing is missing).
+function blockPriceMissing(b) {
+  const missing = [];
+  const num = v => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
+  if(num(b.priceP)   <= 0) missing.push('Çmimi i Pllakës');
+  if(num(b.priceCut) <= 0) missing.push('Prerja');
+  if(blockHasTenie(b) && (b.totML||0) > 0 && num(b.priceBoard) <= 0) missing.push('Bordim');
+  if(blockHasM2(b) && num(b.pricePaint) <= 0) missing.push('Lyerja');
+  if(blockHasFrezim(b)) {
+    for(const r of b.rows) {
+      if(r.frezim && num(r.frezimPrice) <= 0) { missing.push('Frezim'); break; }
+    }
+  }
+  return missing;
+}
+
+// Paint the non-blocking warning UI for a block from blockPriceMissing().
+function applyBlockPriceWarnings(b) {
+  const s = id => document.getElementById(id);
+  const num = v => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
+  const warnInput = (el, bad) => {
+    if(!el) return;
+    // Set the full `border` shorthand (not just border-color): the input's
+    // inline base style uses `border:1px solid var(--border)`, a pending-
+    // substitution var() shorthand that would otherwise override a lone
+    // border-color assignment and swallow the highlight.
+    el.style.border     = bad ? '1.5px solid #d97706' : '1px solid var(--border)';
+    el.style.background = bad ? '#fffbeb' : '#fff';
+  };
+  warnInput(s(`price-p-${b.id}`),     num(b.priceP)   <= 0);
+  warnInput(s(`price-cut-${b.id}`),   num(b.priceCut) <= 0);
+  if(blockHasTenie(b)) warnInput(s(`price-board-${b.id}`), (b.totML||0) > 0 && num(b.priceBoard) <= 0);
+  if(blockHasM2(b))    warnInput(s(`price-paint-${b.id}`), num(b.pricePaint) <= 0);
+  // Frezim row inputs: outline any checked row whose price is still empty.
+  if(blockHasFrezim(b)) {
+    for(const r of b.rows) {
+      const el = s(`frezim-price-${b.id}-${r.id}`);
+      if(el) warnInput(el, !!r.frezim && num(r.frezimPrice) <= 0);
+    }
+  }
+  const missing = blockPriceMissing(b);
+  const noteEl = s(`price-warn-${b.id}`);
+  if(noteEl) {
+    if(missing.length) {
+      noteEl.style.display = '';
+      noteEl.innerHTML = `&#9888; Mungojnë çmimet: ${missing.join(', ')} — plotësoji para se të gjenerosh faturën.`;
+    } else {
+      noteEl.style.display = 'none';
+    }
+  }
+  // Header badge so the operator spots unpriced sections while collapsed.
+  const badge = s(`price-warn-badge-${b.id}`);
+  if(badge) badge.style.display = missing.length ? 'inline-flex' : 'none';
 }
 
 function updateGrandTotal() {
-  let totalPanels=0, totalCut=0, totalTenie=0, totalPaint=0, totalFrezim=0;
+  let totalPanels=0, totalCut=0, totalBoard=0, totalPaint=0, totalFrezim=0;
   for(const b of blocks) {
-    const { pPanels, pCut, pTenie, pPaint, pFrezim } = calcBlockPrice(b);
+    const { pPanels, pCut, pBoard, pPaint, pFrezim } = calcBlockPrice(b);
     totalPanels += pPanels;
     totalCut    += pCut;
-    totalTenie  += pTenie;
+    totalBoard  += pBoard;
     totalPaint  += pPaint;
     totalFrezim += pFrezim;
   }
-  const grand = totalPanels + totalCut + totalTenie + totalPaint + totalFrezim;
+  const grand = totalPanels + totalCut + totalBoard + totalPaint + totalFrezim;
 
   const bar = document.getElementById('grand-total-bar');
   if(!bar) return;
@@ -9194,11 +9298,38 @@ function updateGrandTotal() {
   const set = (id,v) => { const el=document.getElementById(id); if(el) el.textContent=fmtALL(v)+' Lek'; };
   set('gtb-v-panels',  totalPanels);
   set('gtb-v-cutting', totalCut);
-  set('gtb-v-tenie',   totalTenie);
+  set('gtb-v-tenie',   totalBoard);   // element id kept; label is "Bordim"
   set('gtb-v-painting',totalPaint);
   set('gtb-v-frezim',  totalFrezim);
   const tv = document.getElementById('gtb-v-total');
   if(tv) tv.textContent = fmtALL(grand);
+}
+
+// Live-edit handler for the per-section price inputs. Writes the value onto the
+// block, mirrors it across siblings (same material+format share one
+// optimization and therefore one price), and recomputes the section strip +
+// grand total. `field` is a block key (priceP/priceCut/priceBoard/pricePaint).
+function handleBlockPriceChange(id, field, val) {
+  const b = blocks.find(x => x.id === id);
+  if(!b) return;
+  const num = parseFloat(val);
+  const stored = isFinite(num) ? num : 0;
+  const DOM = { priceP:'p', priceCut:'cut', priceBoard:'board', pricePaint:'paint' };
+  const sibs = (typeof _siblingBlocks === 'function') ? _siblingBlocks(b) : [b];
+  const group = (sibs && sibs.length) ? sibs : [b];
+  for(const s of group) {
+    s[field] = stored;
+    // Reflect the mirrored value onto each sibling's input (skip the one the
+    // user is typing into so the caret isn't disturbed).
+    if(s.id !== id) {
+      const el = document.getElementById(`price-${DOM[field]}-${s.id}`);
+      if(el) el.value = val;
+    }
+    updateBlockPrice(s);
+  }
+  updateGrandTotal();
+  // Prices are part of the order's unsaved state — keep the save button honest.
+  if (typeof markOrderDirty === 'function') markOrderDirty();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -9306,7 +9437,40 @@ function renderBlock(b) {
   const paintStrip = '';   // unified into totalsHtml above
   const optHtml = `<div class="opt-panel" id="opt-panel-${b.id}">${renderOptPanelInner(b)}</div>`;
 
-  // ── Per-block price strip ──────────────────────────────────────
+  // ── Per-section price inputs ───────────────────────────────────
+  // Prices are entered here, directly on the material section. Panel price is
+  // per material (operator sets it); Bordim / Lyerja show only for materials
+  // that take edge-banding / painting. Edits mirror across siblings and live-
+  // recompute the price strip + grand total via handleBlockPriceChange().
+  const _priceInStyle = "background:#fff;border:1px solid var(--border);border-radius:7px;padding:8px 11px;font-family:'DM Mono',monospace;font-size:13px;width:100%;outline:none;";
+  const priceInputsHtml = `
+  <div class="price-inputs" style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;">
+    <div style="width:100%;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:2px;">Çmimet e këtij materiali</div>
+    <div class="field" style="width:170px;flex:none;">
+      <label>Çmimi i Pllakës (Lek/copë)</label>
+      <input type="number" min="0" step="1" id="price-p-${b.id}" value="${b.priceP ? b.priceP : ''}" placeholder="0"
+        oninput="handleBlockPriceChange(${b.id},'priceP',this.value)" style="${_priceInStyle}">
+    </div>
+    <div class="field" style="width:150px;flex:none;">
+      <label>Prerja (Lek/panel)</label>
+      <input type="number" min="0" step="1" id="price-cut-${b.id}" value="${b.priceCut != null ? b.priceCut : 300}"
+        oninput="handleBlockPriceChange(${b.id},'priceCut',this.value)" style="${_priceInStyle}">
+    </div>
+    ${hasTenie ? `<div class="field" style="width:150px;flex:none;">
+      <label>Bordim (Lek/m)</label>
+      <input type="number" min="0" step="1" id="price-board-${b.id}" value="${b.priceBoard != null ? b.priceBoard : 70}"
+        oninput="handleBlockPriceChange(${b.id},'priceBoard',this.value)" style="${_priceInStyle}">
+    </div>` : ''}
+    ${hasM2 ? `<div class="field" style="width:150px;flex:none;">
+      <label>Lyerja (Lek/m²)</label>
+      <input type="number" min="0" step="1" id="price-paint-${b.id}" value="${b.pricePaint != null ? b.pricePaint : 2200}"
+        oninput="handleBlockPriceChange(${b.id},'pricePaint',this.value)" style="${_priceInStyle}">
+    </div>` : ''}
+    ${hasFrezim ? `<div style="width:100%;font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:-2px;">Çmimi i frezimit vendoset për rresht, pranë kutizës së frezimit (Lek/copë).</div>` : ''}
+    <div id="price-warn-${b.id}" style="display:none;width:100%;margin-top:2px;font-size:11.5px;font-weight:600;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:7px;padding:7px 10px;"></div>
+  </div>`;
+
+  // ── Per-block price strip (computed totals) ────────────────────
   // (bp computed earlier for the unified totals strip)
   const priceStripHtml = `
   <div class="price-strip" style="margin-top:12px;">
@@ -9318,27 +9482,15 @@ function renderBlock(b) {
       <div class="price-strip-lbl">Prerja</div>
       <div class="price-strip-val" id="bprice-cut-${b.id}">${fmtALL(bp.pCut)}<em>Lek</em></div>
     </div>
-    <div class="price-strip-item" id="bprice-tenie22-wrap-${b.id}" style="display:${hasTenie && (b.totML22||0) > 0 ? '' : 'none'}">
-      <div class="price-strip-lbl">Tenie 22mm</div>
-      <div class="price-strip-val" id="bprice-tenie22-${b.id}">${fmtALL(bp.pTenie22||0)}<em>Lek</em></div>
-    </div>
-    <div class="price-strip-item" id="bprice-tenie28-wrap-${b.id}" style="display:${hasTenie && (b.totML28||0) > 0 ? '' : 'none'}">
-      <div class="price-strip-lbl">Tenie 28mm</div>
-      <div class="price-strip-val" id="bprice-tenie28-${b.id}">${fmtALL(bp.pTenie28||0)}<em>Lek</em></div>
-    </div>
-    <div class="price-strip-item" id="bprice-tenie40-wrap-${b.id}" style="display:${hasTenie && (b.totML40||0) > 0 ? '' : 'none'}">
-      <div class="price-strip-lbl">Tenie 40mm</div>
-      <div class="price-strip-val" id="bprice-tenie40-${b.id}">${fmtALL(bp.pTenie40||0)}<em>Lek</em></div>
-    </div>
-    <div class="price-strip-item" id="bprice-tenie56-wrap-${b.id}" style="display:${hasTenie && (b.totML56||0) > 0 ? '' : 'none'}">
-      <div class="price-strip-lbl">Tenie 56mm</div>
-      <div class="price-strip-val" id="bprice-tenie56-${b.id}">${fmtALL(bp.pTenie56||0)}<em>Lek</em></div>
+    <div class="price-strip-item" id="bprice-board-wrap-${b.id}" style="display:${hasTenie && (b.totML||0) > 0 ? '' : 'none'}">
+      <div class="price-strip-lbl">Bordim</div>
+      <div class="price-strip-val" id="bprice-board-${b.id}">${fmtALL(bp.pBoard)}<em>Lek</em></div>
     </div>
     <div class="price-strip-item" id="bprice-paint-wrap-${b.id}" style="display:${hasM2?'':'none'}">
       <div class="price-strip-lbl">Lyerja</div>
       <div class="price-strip-val" id="bprice-paint-${b.id}">${fmtALL(bp.pPaint)}<em>Lek</em></div>
     </div>
-    <div class="price-strip-item" id="bprice-frezim-wrap-${b.id}" style="display:${hasFrezim?'':'none'}">
+    <div class="price-strip-item" id="bprice-frezim-wrap-${b.id}" style="display:${hasFrezim && bp.nFrezimPieces > 0 ? '' : 'none'}">
       <div class="price-strip-lbl">Frezim</div>
       <div class="price-strip-val" id="bprice-frezim-${b.id}">${fmtALL(bp.pFrezim)}<em>Lek</em></div>
     </div>
@@ -9369,6 +9521,7 @@ function renderBlock(b) {
         })()}
         ${escHtml(b.name)}
         <span class="mat-badge">${escHtml(getMaterialBehavior(getMaterialById(b.materialId)).name.toUpperCase())}</span>
+        <span id="price-warn-badge-${b.id}" title="Ky seksion ka çmime të paplotësuara" style="display:${blockPriceMissing(b).length ? 'inline-flex' : 'none'};align-items:center;gap:4px;font-size:10px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:5px;padding:2px 7px;letter-spacing:.02em;">&#9888; Çmime</span>
         ${_blockHasSiblings(b) ? `<span title="Ky seksion ndan optimizimin dhe skedarët WinCut me ${_siblingBlocks(b).length - 1} seksion${_siblingBlocks(b).length === 2 ? '' : 'e'} të tjerë me të njëjtin material+format" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#1a4a8c;background:#eaf2fc;border:1px solid #bfd4ee;border-radius:5px;padding:2px 7px;letter-spacing:.02em;">&#128279; Grupuar (${_siblingBlocks(b).length})</span>` : ''}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
@@ -9438,6 +9591,7 @@ function renderBlock(b) {
           <button class="add-row-btn" onclick="addRow(${b.id})">+ Shto rresht</button>
           ${totalsHtml}
           ${paintStrip}
+          ${priceInputsHtml}
           ${priceStripHtml}
         </div>
         ${optHtml}
@@ -9507,11 +9661,14 @@ function renderRow(b, r) {
         onchange="handleLyerje(${b.id},${r.id},this.checked)"
         style="width:16px;height:16px;cursor:pointer;accent-color:#1a7a4a;">`}
     </td>
-    ${hasFrezim ? `<td style="width:42px;text-align:center;">
+    ${hasFrezim ? `<td style="width:158px;text-align:center;white-space:nowrap;">
       ${r.fromDopjim ? '' : `<input type="checkbox" class="frezim-cb" ${r.frezim?'checked':''}
         data-bid="${b.id}" data-rid="${r.id}"
         onchange="handleFrezim(${b.id},${r.id},this.checked)"
-        style="width:16px;height:16px;cursor:pointer;accent-color:#7c3aed;">`}
+        style="width:16px;height:16px;cursor:pointer;accent-color:#7c3aed;vertical-align:middle;">` + `<span class="frezim-price-wrap" id="frezim-price-wrap-${b.id}-${r.id}" style="align-items:center;gap:5px;margin-left:7px;vertical-align:middle;display:${r.frezim ? 'inline-flex' : 'none'};"><input type="number" min="0" step="1" class="frezim-price" id="frezim-price-${b.id}-${r.id}"
+        value="${r.frezimPrice != null ? r.frezimPrice : ''}" placeholder="çmimi" title="Çmimi i frezimit për copë"
+        oninput="handleFrezimPrice(${b.id},${r.id},this.value)"
+        style="width:86px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-family:'DM Mono',monospace;font-size:12px;text-align:right;"><span style="font-size:11px;font-weight:600;color:var(--text3);font-family:'DM Mono',monospace;">Lek</span></span>`}
     </td>` : ''}` : '';
 
   // mdf only: 1A/2A + M²
@@ -9533,11 +9690,14 @@ function renderRow(b, r) {
         onchange="handleLyerje(${b.id},${r.id},this.checked)"
         style="width:16px;height:16px;cursor:pointer;accent-color:#c0392b;">`}
     </td>
-    ${hasFrezim ? `<td style="width:42px;text-align:center;">
+    ${hasFrezim ? `<td style="width:158px;text-align:center;white-space:nowrap;">
       ${r.fromDopjim ? '' : `<input type="checkbox" class="frezim-cb" ${r.frezim?'checked':''}
         data-bid="${b.id}" data-rid="${r.id}"
         onchange="handleFrezim(${b.id},${r.id},this.checked)"
-        style="width:16px;height:16px;cursor:pointer;accent-color:#7c3aed;">`}
+        style="width:16px;height:16px;cursor:pointer;accent-color:#7c3aed;vertical-align:middle;">` + `<span class="frezim-price-wrap" id="frezim-price-wrap-${b.id}-${r.id}" style="align-items:center;gap:5px;margin-left:7px;vertical-align:middle;display:${r.frezim ? 'inline-flex' : 'none'};"><input type="number" min="0" step="1" class="frezim-price" id="frezim-price-${b.id}-${r.id}"
+        value="${r.frezimPrice != null ? r.frezimPrice : ''}" placeholder="çmimi" title="Çmimi i frezimit për copë"
+        oninput="handleFrezimPrice(${b.id},${r.id},this.value)"
+        style="width:86px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-family:'DM Mono',monospace;font-size:12px;text-align:right;"><span style="font-size:11px;font-weight:600;color:var(--text3);font-family:'DM Mono',monospace;">Lek</span></span>`}
     </td>` : ''}` : '';
 
   // PDF-imported rows lock their dimensions + quantity. The user can still
@@ -14161,31 +14321,91 @@ async function shkarkoDokumentet() {
   const data    = document.getElementById('data').value || new Date().toISOString().split('T')[0];
   const baseName = `${klienti}_${fatura}`;
 
-  // Build the PDFs. With HIDE_PRICES on there's exactly one (materials);
-  // when prices come back on, a second invoice PDF joins. Pack the latter
-  // case as a small zip so the user gets one download.
-  const pdfs = [];
+  // Materials PDF only — the priced invoice has its own button ("Shkarko
+  // Faturën"), which enforces that every price is filled in. Keeping the
+  // workshop document price-free means it never blocks on missing prices.
   const matPdf = buildMaterialsPDF(klienti, fatura, data);
-  pdfs.push([`${baseName}.pdf`, matPdf.output('arraybuffer')]);
-  if (!HIDE_PRICES) {
-    const invPdf = buildInvoicePDF(klienti, fatura, data);
-    pdfs.push([`fatura_${baseName}.pdf`, invPdf.output('arraybuffer')]);
+  const blob = new Blob([matPdf.output('arraybuffer')], { type: 'application/pdf' });
+  await _saveBlobAs(blob, `${baseName}.pdf`, 'PDF Document', 'application/pdf', '.pdf');
+}
+
+// Collect every section whose required prices aren't filled yet, as
+// { name, missing:[labels] }. Used to gate invoice generation (the ONLY place
+// prices are mandatory — everywhere else the warnings are advisory).
+function collectMissingPrices() {
+  const problems = [];
+  for(const b of blocks) {
+    const missing = blockPriceMissing(b);
+    if(missing.length) problems.push({ name: b.name, missing });
+  }
+  return problems;
+}
+
+// Download the priced invoice PDF. Prices are MANDATORY here: if any section
+// is missing a required price the download is blocked with a clear message,
+// and the on-form warnings are refreshed so the operator sees exactly where.
+// Shared prep for the priced invoice (used by both download and print).
+// Order matters: we ALWAYS save first, so the operator's entered prices/edits
+// persist even if generation is then blocked on a missing price. Only after a
+// successful save do we enforce that every required price is filled (mandatory
+// for the invoice alone). Returns { doc, klienti, fatura } on success, or null
+// (a message/toast was already shown).
+async function _prepareInvoicePDF() {
+  // 1) Pre-save — always, before anything else.
+  const saveOk = await saveOrderToStorage();
+  if(!saveOk) return null;
+
+  // 2) Prices are mandatory for the invoice. Block (but the save above stuck).
+  const problems = collectMissingPrices();
+  if(problems.length) {
+    blocks.forEach(b => { try { applyBlockPriceWarnings(b); } catch(_){} });
+    const lines = problems.map(p => `• ${p.name}: ${p.missing.join(', ')}`).join('\n');
+    if (typeof shellToast === 'function') shellToast('Mungojnë çmimet për faturën — shiko seksionet e shënuara','err');
+    alert('Nuk mund të gjenerohet fatura — mungojnë çmimet:\n\n' + lines +
+          '\n\nPlotëso çmimet e mësipërme dhe provo përsëri.');
+    return null;
   }
 
-  if (pdfs.length === 1) {
-    // Single PDF — download directly, no zip wrapper.
-    const [name, buf] = pdfs[0];
-    const blob = new Blob([buf], { type: 'application/pdf' });
-    await _saveBlobAs(blob, name, 'PDF Document', 'application/pdf', '.pdf');
-    return;
-  }
+  // 3) Build.
+  const libsOk = await ensureLibsLoaded();
+  if(!libsOk) return null;
+  const klienti = document.getElementById('klienti').value.trim() || 'Klient';
+  const fatura  = document.getElementById('nr-fatura').value.trim() || '000';
+  const data    = document.getElementById('data').value || new Date().toISOString().split('T')[0];
+  return { doc: buildInvoicePDF(klienti, fatura, data), klienti, fatura };
+}
 
-  // Multiple PDFs — bundle into a zip so the user gets one download.
-  const zip = new JSZip();
-  const root = zip.folder(baseName);
-  for (const [name, buf] of pdfs) root.file(name, buf);
-  const blob = await zip.generateAsync({type:'blob'});
-  await _saveBlobAs(blob, `${baseName}.zip`, 'ZIP Archive', 'application/zip', '.zip');
+async function shkarkoFaturen() {
+  const prep = await _prepareInvoicePDF();
+  if(!prep) return;
+  const blob = new Blob([prep.doc.output('arraybuffer')], { type: 'application/pdf' });
+  await _saveBlobAs(blob, `fatura_${prep.klienti}_${prep.fatura}.pdf`, 'PDF Document', 'application/pdf', '.pdf');
+}
+
+// Same as shkarkoFaturen (pre-save + mandatory prices) but opens the browser's
+// print dialog instead of downloading — mirrors printoDokumentin's iframe flow.
+async function printoFaturen() {
+  const prep = await _prepareInvoicePDF();
+  if(!prep) return;
+  const doc = prep.doc;
+  try { doc.autoPrint(); } catch(e) { /* older jsPDF: no autoPrint */ }
+  const url = URL.createObjectURL(doc.output('blob'));
+
+  let iframe = document.getElementById('_print-iframe');
+  if (iframe) iframe.remove();
+  iframe = document.createElement('iframe');
+  iframe.id = '_print-iframe';
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+  iframe.src = url;
+  document.body.appendChild(iframe);
+  setTimeout(() => {
+    try {
+      const w = iframe.contentWindow;
+      if (w && typeof w.print === 'function') w.focus(), w.print();
+    } catch(e) { /* cross-origin blob: nothing to do */ }
+  }, 1500);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  shellToast('Po hapet dialogu i printimit…');
 }
 
 // Build the materials PDF and open the browser's print dialog directly,
@@ -14801,18 +15021,19 @@ function buildInvoicePDF(klienti, fatura, data) {
   const mg=14, W=210;
   let y = drawPdfHeader(doc, klienti, fatura, data, 'FATURË');
 
-  // v12: use effective prices — if an order is open with a frozen snapshot,
-  // we get the snapshotted prices; otherwise live Konfigurim values.
-  const svc = getEffectiveServicePrices();
-
-  const fmt = v => Number(v).toLocaleString('sq-AL') + ' Lek';
+  // Prices come straight off each section (b.priceP/priceCut/priceBoard/
+  // pricePaint). The line totals mirror calcBlockPrice exactly — including its
+  // sibling rule (shared panels+cut billed once, on the group's primary) — so
+  // the invoice total always equals the on-screen grand total.
+  // Lek has no sub-unit — every money value is rounded to a whole Lek.
+  const fmt = v => Number(Math.round(v)).toLocaleString('sq-AL') + ' Lek';
 
   const invCols = [
-    {label:'Përshkrimi',   w:76, align:'left'},
-    {label:'Sasia',        w:20, align:'right'},
-    {label:'Njësia',       w:18, align:'center'},
-    {label:'Çmimi Unit.',  w:32, align:'right'},
-    {label:'Totali',       w:36, align:'right'},
+    {label:'Përshkrimi',     w:76, align:'left'},
+    {label:'Sasia',          w:20, align:'right'},
+    {label:'Njësia',         w:18, align:'center'},
+    {label:'Çmimi për njësi',w:32, align:'right'},
+    {label:'Totali',         w:36, align:'right'},
   ];
 
   let grandTotal = 0;
@@ -14829,69 +15050,64 @@ function buildInvoicePDF(klienti, fatura, data) {
     const hasTenie = blockHasTenie(b);
     const hasM2    = blockHasM2(b);
 
-    // Line 1: panels — per-panel price (material × format)
-    const panelPrice = getEffectiveMaterialPrice(b);
+    // Sibling rule: panels + cut physically happen once for a shared
+    // optimization, so only the group's primary bills them (matches
+    // calcBlockPrice). Non-primary siblings still bill their own boarding /
+    // painting (each section owns its ml / m²).
+    const _sibs = (typeof _siblingBlocks === 'function') ? _siblingBlocks(b) : [b];
+    const isPrimary = _sibs.length === 0 || _sibs[0].id === b.id;
+
+    const panelPrice = parseFloat(b.priceP)     || 0;
+    const cutPrice   = parseFloat(b.priceCut)   || 0;
+    const boardRate  = parseFloat(b.priceBoard) || 0;
+    const paintPrice = parseFloat(b.pricePaint) || 0;
     const panelCount = b.panels.length;
-    const panelTotal = panelCount * panelPrice;
-    grandTotal += panelTotal;
-    invRows.push([`Pllaka materiali — ${b.name}`, panelCount, 'pllakë', fmt(panelPrice), fmt(panelTotal)]);
 
-    // Line 2: cutting — per panel
-    const cutPrice = svc.cutting;
-    const cutTotal = panelCount * cutPrice;
-    grandTotal += cutTotal;
-    invRows.push([`Prerja CNC — ${b.name}`, panelCount, 'panel', fmt(cutPrice), fmt(cutTotal)]);
+    // Each displayed line total is rounded to whole Lek; the grand total sums
+    // those rounded values so the invoice always adds up exactly on paper.
+    // Line 1 + 2: panels + cutting (primary only)
+    if(isPrimary){
+      const panelTotal = panelCount * panelPrice;
+      grandTotal += Math.round(panelTotal);
+      invRows.push([`Pllaka materiali — ${b.name}`, panelCount, 'pllakë', fmt(panelPrice), fmt(panelTotal)]);
 
-    // Line 3: tenie (ml) — 4-tier breakdown by composite edge thickness.
-    // Emits up to four rows, only those with non-zero ml.
+      const cutTotal = panelCount * cutPrice;
+      grandTotal += Math.round(cutTotal);
+      invRows.push([`Prerja — ${b.name}`, panelCount, 'panel', fmt(cutPrice), fmt(cutTotal)]);
+    }
+
+    // Line 3: boarding (Bordim) — one flat rate × total edge-band meters.
     if(hasTenie){
-      const ml22 = b.totML22 || 0;
-      const ml28 = b.totML28 || 0;
-      const ml40 = b.totML40 || 0;
-      const ml56 = b.totML56 || 0;
-      const { price22, price28, price40, price56 } = getEffectiveTeniePricesForBlock(b);
-      const tenieDesc = getTenieDescriptionForBlock(b);
-      const baseDesc = tenieDesc ? `${tenieDesc} — ${b.name}` : `Tenie — ${b.name}`;
-      if(ml22 > 0) {
-        const t22 = ml22 * price22;
-        grandTotal += t22;
-        invRows.push([`${baseDesc} (22mm)`, ml22.toFixed(3), 'ml', fmt(price22), fmt(t22)]);
-      }
-      if(ml28 > 0) {
-        const t28 = ml28 * price28;
-        grandTotal += t28;
-        invRows.push([`${baseDesc} (28mm)`, ml28.toFixed(3), 'ml', fmt(price28), fmt(t28)]);
-      }
-      if(ml40 > 0) {
-        const t40 = ml40 * price40;
-        grandTotal += t40;
-        invRows.push([`${baseDesc} (40mm)`, ml40.toFixed(3), 'ml', fmt(price40), fmt(t40)]);
-      }
-      if(ml56 > 0) {
-        const t56 = ml56 * price56;
-        grandTotal += t56;
-        invRows.push([`${baseDesc} (56mm)`, ml56.toFixed(3), 'ml', fmt(price56), fmt(t56)]);
+      const ml = b.totML || 0;
+      if(ml > 0){
+        const boardTotal = ml * boardRate;
+        grandTotal += Math.round(boardTotal);
+        invRows.push([`Bordim — ${b.name}`, ml.toFixed(3), 'ml', fmt(boardRate), fmt(boardTotal)]);
       }
     }
 
-    // Line 4: painting (m²) — lis, mdf
+    // Line 4: painting (m²)
     if(hasM2){
       const paintM2 = (b.totM2sip||0)+(b.totM2ans||0);
-      const paintPrice = svc.painting;
       const paintTotal = paintM2 * paintPrice;
-      grandTotal += paintTotal;
+      grandTotal += Math.round(paintTotal);
       invRows.push([`Lyerje — ${b.name}`, paintM2.toFixed(3), 'm²', fmt(paintPrice), fmt(paintTotal)]);
     }
 
-    // Line 5: frezim (copë) — non-fiber MDF/Lis only, only if any rows have it checked
-    if(blockHasFrezim(b)) {
-      let frezimPieces = 0;
-      for(const r of b.rows) if(r.frezim) frezimPieces += parseInt(r.s)||0;
-      if(frezimPieces > 0){
-        const frezimPrice = svc.frezim;
-        const frezimTotal = frezimPieces * frezimPrice;
-        grandTotal += frezimTotal;
-        invRows.push([`Frezim — ${b.name}`, frezimPieces, 'copë', fmt(frezimPrice), fmt(frezimTotal)]);
+    // Line 5: frezim (milling) — per-row price × that row's pieces, aggregated.
+    // The per-unit column is intentionally left blank (rows may each carry a
+    // different frezim price, so a single unit price would be misleading).
+    if(blockHasFrezim(b)){
+      let pieces = 0, total = 0;
+      for(const r of b.rows){
+        if(!r.frezim) continue;
+        const cope = parseInt(r.s) || 0;
+        const pr   = parseFloat(r.frezimPrice) || 0;
+        pieces += cope; total += pr * cope;
+      }
+      if(pieces > 0){
+        grandTotal += Math.round(total);
+        invRows.push([`Frezim — ${b.name}`, pieces, 'copë', '', fmt(total)]);
       }
     }
 
@@ -14908,7 +15124,7 @@ function buildInvoicePDF(klienti, fatura, data) {
   doc.rect(mg,y,W-2*mg,9,'F');
   doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,30,40);
   doc.text('TOTAL', mg+4, y+6.5);
-  doc.text(Number(grandTotal).toLocaleString('sq-AL') + ' Lek', W-mg-3, y+6.5, {align:'right'});
+  doc.text(Number(Math.round(grandTotal)).toLocaleString('sq-AL') + ' Lek', W-mg-3, y+6.5, {align:'right'});
   doc.setDrawColor(210,210,218); doc.setLineWidth(0.2);
   doc.line(mg,y+9,W-mg,y+9);
   y+=15;
