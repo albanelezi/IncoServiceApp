@@ -1453,6 +1453,18 @@ tr.dopjim-row:hover {
   color: #1f2937;
   letter-spacing: .5px;
 }
+/* Per-panel "exclude from price" toggle (operator used a warehouse remnant
+   for this board, so its board+cut price must not be billed). */
+.panel-noprice-lbl {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 700;
+  color: #6b7280; cursor: pointer; user-select: none; white-space: nowrap;
+  padding: 3px 8px; border-top: 1px dashed #e5e7eb; background: #fafafa;
+}
+.panel-noprice-lbl input { width: 12px; height: 12px; margin: 0; cursor: pointer; accent-color: #b45309; }
+.panel-card.pc-noprice { border-color: #f59e0b; border-style: dashed; }
+.panel-card.pc-noprice .panel-canvas-wrap { opacity: .45; }
+.panel-card.pc-noprice .panel-noprice-lbl { color: #b45309; background: #fffbeb; }
 .eff-badge {
   font-family: 'DM Mono', monospace;
   font-size: 9px;
@@ -3928,6 +3940,9 @@ function fullFingerprint(order) {
     priceCut:   b.priceCut   || 0,
     priceBoard: b.priceBoard || 0,
     pricePaint: b.pricePaint || 0,
+    // Per-panel "exclude from price" flags (warehouse remnant boards) — an
+    // unsaved change the operator shouldn't lose. Not structural.
+    xp: (b.panels || []).map(p => (p && p.noPrice) ? 1 : 0).join(''),
     rows: (b.rows || []).map(r => ({
       l: r.l, g: r.g, s: r.s,
       ag: r.ag || 0, as_: r.as_ || 0,
@@ -9147,10 +9162,14 @@ function calcBlockPrice(b) {
   // price is mirrored across siblings (handleBlockPriceChange), so the primary
   // carries the group's agreed board price.
   const nPanels  = b.panels ? b.panels.length : 0;
+  // Panels flagged noPrice (operator used a warehouse remnant board) are
+  // excluded from the BOARD and CUT charges only. Boarding / painting /
+  // frezim are per-piece and stay billed in full.
+  const nBilled  = b.panels ? b.panels.filter(p => p && !p.noPrice).length : 0;
   const _sibs = (typeof _siblingBlocks === 'function') ? _siblingBlocks(b) : [b];
   const _isPrimary = _sibs.length === 0 || _sibs[0].id === b.id;
-  const pPanels  = _isPrimary ? nPanels * panelPrice : 0;
-  const pCut     = _isPrimary ? nPanels * cutPrice   : 0;
+  const pPanels  = _isPrimary ? nBilled * panelPrice : 0;
+  const pCut     = _isPrimary ? nBilled * cutPrice   : 0;
   // Boarding (Bordim): one flat rate × total edge-band meters (all tiers
   // combined into b.totML).  Charged per section (each section owns its ml).
   const pBoard   = blockHasTenie(b) ? (b.totML||0) * boardRate : 0;
@@ -9173,7 +9192,7 @@ function calcBlockPrice(b) {
 
   // pTenie kept as an alias of pBoard so legacy callers (grand-total bar id
   // "gtb-v-tenie", updateGrandTotal) keep working without renames.
-  return { pPanels, pCut, pBoard, pTenie: pBoard, pPaint, pFrezim, pTotal, nPanels, nFrezimPieces };
+  return { pPanels, pCut, pBoard, pTenie: pBoard, pPaint, pFrezim, pTotal, nPanels, nBilled, nFrezimPieces };
 }
 
 function updateBlockPrice(b) {
@@ -9189,9 +9208,12 @@ function updateBlockPrice(b) {
   setVal(`bprice-frezim-${b.id}`, bp.pFrezim);
   setVal(`bprice-total-${b.id}`,  pTotal);
 
-  // Update panel count label "Pllaka (N)" on the price strip
+  // Update panel count label on the price strip: "Pllaka (N)" normally, or
+  // "Pllaka (billed/total)" when some panels are excluded from the price.
   const panelLbl = s(`bprice-panels-lbl-${b.id}`);
-  if(panelLbl) panelLbl.textContent = `Pllaka (${nPanels})`;
+  if(panelLbl) panelLbl.textContent = (bp.nBilled !== nPanels)
+    ? `Pllaka (${bp.nBilled}/${nPanels})`
+    : `Pllaka (${nPanels})`;
 
   // Update panel count on the unified totals strip. This element is rendered
   // ONCE at block-render time with bp.nPanels=0 (b.panels isn't populated yet);
@@ -9308,6 +9330,30 @@ function updateGrandTotal() {
   set('gtb-v-frezim',  totalFrezim);
   const tv = document.getElementById('gtb-v-total');
   if(tv) tv.textContent = fmtALL(grand);
+}
+
+// Per-panel "exclude from price" toggle. The operator ticks this when a
+// board was taken from warehouse stock (a remnant of another order) instead
+// of a fresh panel: that panel's BOARD + CUT charges are dropped, while the
+// per-piece charges (boarding / painting / frezim) stay. The flag lives on
+// the panel object, so it persists with the order and is shared across
+// sibling sections (which share the panels array by reference).
+function togglePanelNoPrice(bid, pi, checked) {
+  const b = blocks.find(x => x.id === bid);
+  if(!b || !Array.isArray(b.panels) || !b.panels[pi]) return;
+  b.panels[pi].noPrice = !!checked;
+  const card = document.getElementById(`panel-card-${bid}-${pi}`);
+  if(card) card.classList.toggle('pc-noprice', !!checked);
+  // Siblings share the panels array — refresh every section in the group.
+  const sibs = (typeof _siblingBlocks === 'function') ? _siblingBlocks(b) : [b];
+  for(const s of (sibs && sibs.length ? sibs : [b])) {
+    updateBlockPrice(s);
+    if(s.id !== bid) {
+      const sc = document.getElementById(`panel-card-${s.id}-${pi}`);
+      if(sc) { sc.classList.toggle('pc-noprice', !!checked); const cb = sc.querySelector('.panel-noprice-lbl input'); if(cb) cb.checked = !!checked; }
+    }
+  }
+  updateGrandTotal();
 }
 
 // Live-edit handler for the per-section price inputs. Writes the value onto the
@@ -9795,7 +9841,8 @@ function renderOptPanelInner(b) {
 
   const panelsHtml = b.panels.map((p,pi)=>{
     const effClass = p.eff>=60 ? 'eff-good' : 'eff-warn';
-    return `<div class="panel-card" style="cursor:pointer" onclick="openPanelZoom(${b.id},${pi})" title="Kliko për ta zmadhuar">
+    const noPrice = !!p.noPrice;
+    return `<div class="panel-card${noPrice ? ' pc-noprice' : ''}" id="panel-card-${b.id}-${pi}" style="cursor:pointer" onclick="openPanelZoom(${b.id},${pi})" title="Kliko për ta zmadhuar">
       <div class="panel-card-hdr">
         <div class="panel-card-title">Panel ${String(pi+1).padStart(2,'0')} — CUTLST0${pi}</div>
         <div class="eff-badge ${effClass}" style="display:flex;align-items:center;gap:6px">
@@ -9805,6 +9852,10 @@ function renderOptPanelInner(b) {
         </div>
       </div>
       <div class="panel-canvas-wrap"><canvas id="canvas-${b.id}-${pi}"></canvas></div>
+      <label class="panel-noprice-lbl" onclick="event.stopPropagation();" title="Shëno nëse kjo pllakë vjen nga magazina (mbetje e një porosie tjetër): nuk faturohet çmimi i pllakës dhe i prerjes. Bordimi / lyerja / frezimi i copëve faturohen normalisht.">
+        <input type="checkbox" ${noPrice ? 'checked' : ''} onclick="event.stopPropagation();" onchange="togglePanelNoPrice(${b.id},${pi},this.checked)">
+        <span>Pa çmim (nga magazina)</span>
+      </label>
     </div>`;
   }).join('');
 
@@ -15111,7 +15162,11 @@ function buildInvoicePDF(klienti, fatura, data) {
     const cutPrice   = parseFloat(b.priceCut)   || 0;
     const boardRate  = parseFloat(b.priceBoard) || 0;
     const paintPrice = parseFloat(b.pricePaint) || 0;
-    const panelCount = b.panels.length;
+    // Only panels NOT flagged noPrice (warehouse remnants) are billed for the
+    // board + cut lines — mirrors calcBlockPrice's nBilled.
+    const panelsAll  = Array.isArray(b.panels) ? b.panels : [];
+    const panelCount = panelsAll.filter(p => p && !p.noPrice).length;
+    const nExcluded  = panelsAll.length - panelCount;
 
     // Each displayed line total is rounded to whole Lek; the grand total sums
     // those rounded values so the invoice always adds up exactly on paper.
@@ -15120,6 +15175,11 @@ function buildInvoicePDF(klienti, fatura, data) {
       const panelTotal = panelCount * panelPrice;
       grandTotal += Math.round(panelTotal);
       invRows.push([`Pllaka materiali — ${b.name}`, panelCount, 'pllakë', fmt(panelPrice), fmt(panelTotal)]);
+      // Boards taken from warehouse stock: shown as their own zero-value line
+      // so the customer sees they were used but not charged (board or cut).
+      if(nExcluded > 0){
+        invRows.push([`Pllaka nga magazina — pa çmim`, nExcluded, 'pllakë', '—', fmt(0)]);
+      }
 
       const cutTotal = panelCount * cutPrice;
       grandTotal += Math.round(cutTotal);
