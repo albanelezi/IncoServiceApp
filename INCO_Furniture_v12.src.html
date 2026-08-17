@@ -9197,6 +9197,9 @@ function updateBlockPrice(b) {
   // even after optimization completes.
   const totPanelsEl = s(`tot-panels-${b.id}`);
   if(totPanelsEl) totPanelsEl.textContent = nPanels;
+  // Collapsed-header summary badge (only exists while the block is collapsed).
+  const hdrPanelsEl = s(`hdr-panels-n-${b.id}`);
+  if(hdrPanelsEl) hdrPanelsEl.textContent = nPanels > 0 ? nPanels : '—';
 
   // Boarding line only when the material takes edge-banding and has ml;
   // painting line only when the material is painted; frezim line only when the
@@ -9522,6 +9525,16 @@ function renderBlock(b) {
         ${escHtml(b.name)}
         <span class="mat-badge">${escHtml(getMaterialBehavior(getMaterialById(b.materialId)).name.toUpperCase())}</span>
         <span id="price-warn-badge-${b.id}" title="Ky seksion ka çmime të paplotësuara" style="display:${blockPriceMissing(b).length ? 'inline-flex' : 'none'};align-items:center;gap:4px;font-size:10px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:5px;padding:2px 7px;letter-spacing:.02em;">&#9888; Çmime</span>
+        ${b.collapsed ? (function(){
+          // Collapsed-only summary: how many panels (boards) this section will
+          // process, plus its piece count — so the operator can scan a closed
+          // order without expanding each material. Kept live by
+          // updateBlockPrice (id hdr-panels-…) after optimization.
+          const nP = Array.isArray(b.panels) ? b.panels.length : 0;
+          const nC = b.totCope || 0;
+          const pl = nP === 1 ? 'pllakë' : 'pllaka';
+          return `<span id="hdr-panels-${b.id}" title="Pllaka për t'u përpunuar në këtë seksion" style="display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:#334155;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:5px;padding:2px 8px;letter-spacing:.02em;font-family:'DM Mono',monospace;">&#9638; <span id="hdr-panels-n-${b.id}">${nP > 0 ? nP : '—'}</span> ${pl}<span style="font-weight:500;color:#64748b;">· ${nC} copë</span></span>`;
+        })() : ''}
         ${_blockHasSiblings(b) ? `<span title="Ky seksion ndan optimizimin dhe skedarët WinCut me ${_siblingBlocks(b).length - 1} seksion${_siblingBlocks(b).length === 2 ? '' : 'e'} të tjerë me të njëjtin material+format" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#1a4a8c;background:#eaf2fc;border:1px solid #bfd4ee;border-radius:5px;padding:2px 7px;letter-spacing:.02em;">&#128279; Grupuar (${_siblingBlocks(b).length})</span>` : ''}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
