@@ -932,7 +932,9 @@ body {
 
 /* ─── MAIN LAYOUT ─────────────────────────────────────────────────── */
 .app {
-  max-width: 70%;
+  /* Order form (material sections) — use up to 90% of the viewport width so
+     the cut tables, price inputs and optimizer panel have room to breathe. */
+  max-width: 90%;
   margin: 0 auto;
   padding: 18px 24px 60px;
 }
@@ -1561,7 +1563,7 @@ canvas { border-radius: 3px; display: block; border: 1px solid #e5e7eb; }
 /* ─── POROSI E RE WRAPPER ─────────────────────────────────────────── */
 #porosi-wrap { padding-top: 0; }
 #porosi-wrap .app {
-  max-width: 70%;
+  max-width: 90%;   /* material sections take up to 90% of the screen width */
   padding: 16px 24px 80px;
   margin: 0 auto;
 }
