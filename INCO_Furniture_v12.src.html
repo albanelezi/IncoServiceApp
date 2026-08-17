@@ -1435,20 +1435,22 @@ tr.dopjim-row:hover {
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 1px 2px rgba(0,0,0,.04);
-  flex: 0 0 180px;
-  width: 180px;
+  /* ~20% larger than the original 180px card; the thumbnail canvas scales
+     with it (drawCanvas defaults maxW/maxH 200/133). */
+  flex: 0 0 216px;
+  width: 216px;
 }
 .panel-card-hdr {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: 9px 13px;
   background: #f9fafb;
   border-bottom: 1px solid #f3f4f6;
 }
 .panel-card-title {
   font-family: 'DM Mono', monospace;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 700;
   color: #1f2937;
   letter-spacing: .5px;
@@ -1456,19 +1458,19 @@ tr.dopjim-row:hover {
 /* Per-panel "exclude from price" toggle (operator used a warehouse remnant
    for this board, so its board+cut price must not be billed). */
 .panel-noprice-lbl {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 700;
+  display: flex; align-items: center; gap: 6px;
+  font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 700;
   color: #6b7280; cursor: pointer; user-select: none; white-space: nowrap;
-  padding: 3px 8px; border-top: 1px dashed #e5e7eb; background: #fafafa;
+  padding: 6px 10px; border-top: 1px dashed #e5e7eb; background: #fafafa;
 }
-.panel-noprice-lbl input { width: 12px; height: 12px; margin: 0; cursor: pointer; accent-color: #b45309; }
+.panel-noprice-lbl input { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: #b45309; }
 .panel-card.pc-noprice { border-color: #f59e0b; border-style: dashed; }
 .panel-card.pc-noprice .panel-canvas-wrap { opacity: .45; }
 .panel-card.pc-noprice .panel-noprice-lbl { color: #b45309; background: #fffbeb; }
 .eff-badge {
   font-family: 'DM Mono', monospace;
-  font-size: 9px;
-  padding: 2px 6px;
+  font-size: 10.5px;
+  padding: 3px 7px;
   border-radius: 4px;
   font-weight: 700;
 }
@@ -1476,7 +1478,7 @@ tr.dopjim-row:hover {
 .eff-warn { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
 
 .panel-canvas-wrap {
-  padding: 5px 5px 4px;
+  padding: 6px 6px 5px;
   display: flex;
   justify-content: center;
   background: #f9fafb;
@@ -10548,13 +10550,13 @@ function _makeColorMapFromRows(rows) {
 
 function drawCanvas(canvas,panelL,panelW,placements,trimX,trimY,opts){
   // opts: { cuts: array (optional, draws red guillotine lines),
-  //         maxW: max canvas width in px (default 165),
-  //         maxH: max canvas height in px (default 110),
+  //         maxW: max canvas width in px (default 200 — fits the 216px card),
+  //         maxH: max canvas height in px (default 133),
   //         showLabels: bool (default true),
   //         colorMap: Map<"w_h", groupColorId> (optional, tints grouped pieces) }
   const o = opts || {};
-  const maxW = o.maxW || 165;
-  const maxH = o.maxH || 110;
+  const maxW = o.maxW || 200;
+  const maxH = o.maxH || 133;
   const showLabels = o.showLabels !== false;
   const sc=Math.min(maxW/panelL,maxH/panelW);
   canvas.width=Math.round(panelL*sc);canvas.height=Math.round(panelW*sc);
