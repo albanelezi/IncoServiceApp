@@ -14568,7 +14568,7 @@ function getLogoDataUrl() {
 }
 
 // ── SHARED PDF HEADER ─────────────────────────────────────────────
-function drawPdfHeader(doc, klienti, fatura, data, title) {
+function drawPdfHeader(doc, klienti, fatura, data, title, opts) {
   const W=210, mg=14;
 
   // Try to embed the app logo image.  Admin keeps the original 24x19 mm
@@ -14591,34 +14591,45 @@ function drawPdfHeader(doc, klienti, fatura, data, title) {
     }
   } catch(e) {}
 
+  // Optional larger type (opts.big — used by the invoice). Defaults are the
+  // compact workshop-document sizes and stay byte-identical when unset.
+  const big = !!(opts && opts.big);
+  const titleFs = big ? 20   : 16;
+  const metaFs  = big ? 10.5 : 8.5;
+  const noteFs  = big ? 9.5  : 8;
+  const titleY  = big ? 15   : 14;
+  const metaY   = big ? 23.5 : 22;
+  const noteY   = big ? 29   : 27;
+  const baseSep = big ? 32.5 : 30;
+
   // Document title — top right
   doc.setFont('helvetica','bold');
-  doc.setFontSize(16);
+  doc.setFontSize(titleFs);
   doc.setTextColor(30,30,40);
-  doc.text(title, W-mg, 14, {align:'right'});
+  doc.text(title, W-mg, titleY, {align:'right'});
 
   // Meta info — right, below title. Bolded + darker so the warehouse can
   // read the client / order number / date at a glance, matching the weight
   // of the dimension values in the table below.
   doc.setFont('helvetica','bold');
-  doc.setFontSize(8.5);
+  doc.setFontSize(metaFs);
   doc.setTextColor(30,30,40);
-  doc.text(`Klienti: ${klienti}   |   Fatura: #${fatura}   |   Data: ${data}`, W-mg, 22, {align:'right'});
+  doc.text(`Klienti: ${klienti}   |   Fatura: #${fatura}   |   Data: ${data}`, W-mg, metaY, {align:'right'});
 
   // Customer note — free-text, read from the form the same way the logo is.
   // Rendered below the meta line (italic, muted); wraps if long and pushes
   // the separator down so it never collides. Nothing shown when empty.
-  let sepY = 30;
+  let sepY = baseSep;
   try {
     const noteEl = document.getElementById('klient-note');
     const note = noteEl ? (noteEl.value || '').trim() : '';
     if (note) {
       doc.setFont('helvetica','italic');
-      doc.setFontSize(8);
+      doc.setFontSize(noteFs);
       doc.setTextColor(90,90,105);
       const noteLines = doc.splitTextToSize('Shënim: ' + note, W - 2*mg - 40);
-      doc.text(noteLines, W-mg, 27, {align:'right'});
-      sepY = 27 + noteLines.length * 3.6 + 2.4;
+      doc.text(noteLines, W-mg, noteY, {align:'right'});
+      sepY = noteY + noteLines.length * (big ? 4.3 : 3.6) + 2.4;
     }
   } catch(e) {}
 
@@ -14636,26 +14647,33 @@ function drawTable(doc, cols, rows, startY, opts={}) {
   const mg = opts.mg||14;
   const rowH = opts.rowH||6.5;
   const drawRowBorders = opts.drawRowBorders||false;
+  // Optional type-size overrides (invoice uses larger type; the workshop
+  // materials PDF keeps the compact defaults).
+  const fs   = opts.fontSize     || 7.5;   // data-row font size
+  const hfs  = opts.headFontSize || 7.5;   // header font size
+  const headH = opts.headH       || 7;     // header row height
   const W = 210;
   let y = startY;
 
   // Table header — white, dark bold text, bottom border
   doc.setFillColor(255,255,255);
-  doc.rect(mg, y, W-2*mg, 7, 'F');
+  doc.rect(mg, y, W-2*mg, headH, 'F');
   doc.setDrawColor(180,180,190);
   doc.setLineWidth(0.3);
-  doc.line(mg,y+7,W-mg,y+7);
+  doc.line(mg,y+headH,W-mg,y+headH);
   doc.setFont('helvetica','bold');
-  doc.setFontSize(7.5);
+  doc.setFontSize(hfs);
   doc.setTextColor(60,60,75);
   let cx=mg+2;
   cols.forEach(c=>{
     const align = c.align||'left';
     const tx = align==='right' ? cx+c.w-3 : align==='center' ? cx+c.w/2 : cx;
-    doc.text(c.label, tx, y+4.5, {align});
+    // Default header baseline (4.5) preserved exactly for the compact table;
+    // scaled tables centre the label in the taller header row.
+    doc.text(c.label, tx, opts.headH ? y+headH/2+hfs*0.16 : y+4.5, {align});
     cx+=c.w;
   });
-  y+=7;
+  y+=headH;
 
   // Data rows — white bg, very light alt stripe
   rows.forEach((row,ri)=>{
@@ -14665,7 +14683,7 @@ function drawTable(doc, cols, rows, startY, opts={}) {
       doc.rect(mg,y,W-2*mg,rowH,'F');
     }
     doc.setFont('helvetica','normal');
-    doc.setFontSize(7.5);
+    doc.setFontSize(fs);
     doc.setTextColor(30,30,40);
     let cx2=mg+2;
     cols.forEach((c,ci)=>{
@@ -14690,7 +14708,7 @@ function drawTable(doc, cols, rows, startY, opts={}) {
         doc.text(val, cx2 + c.w/2, y + rowH/2 + 1.5, {align:'center'});
         // restore defaults for following cells
         doc.setFont('helvetica','normal');
-        doc.setFontSize(7.5);
+        doc.setFontSize(fs);
         doc.setTextColor(30,30,40);
       } else if(cell && typeof cell === 'object' && cell.text !== undefined) {
         // Dimension cell — BIGGER + DARKER so the warehouse reads sizes
@@ -14707,7 +14725,7 @@ function drawTable(doc, cols, rows, startY, opts={}) {
         const textW = doc.getTextWidth(val);
         // restore defaults for subsequent non-dimension cells
         doc.setFont('helvetica','normal');
-        doc.setFontSize(7.5);
+        doc.setFontSize(fs);
         doc.setTextColor(30,30,40);
         const lx1 = txPos - textW/2 - 1;
         const lx2 = txPos + textW/2 + 1;
@@ -14724,7 +14742,16 @@ function drawTable(doc, cols, rows, startY, opts={}) {
       } else {
         const val = String(cell||'');
         const tx = align==='right' ? cx2+c.w-3 : align==='center' ? cx2+c.w/2 : cx2;
+        // Shrink-to-fit: if the text is wider than its column, step the font
+        // down (never below 6pt) so it can't run into the neighbouring cell.
+        const maxW = c.w - 4;
+        let tw = doc.getTextWidth(val);
+        if(tw > maxW && maxW > 0) {
+          const scaled = Math.max(6, fs * maxW / tw);
+          doc.setFontSize(scaled);
+        }
         doc.text(val, tx, y + rowH/2 + 1.5, {align});
+        doc.setFontSize(fs);
       }
       cx2+=c.w;
     });
@@ -14815,18 +14842,21 @@ function drawBlockInfoBox(doc, b, y) {
 }
 
 // ── SECTION DIVIDER — clean, white with left accent bar ───────────
-function drawSectionBar(doc, label, color, y) {
+function drawSectionBar(doc, label, color, y, opts={}) {
   const mg=14, W=210;
+  // Optional larger type (invoice); defaults are the compact workshop sizes.
+  const fs = opts.fontSize || 8.5;
+  const h  = opts.h        || 7;
   // Border bottom only
   doc.setDrawColor(210,210,218);
   doc.setLineWidth(0.3);
-  doc.line(mg,y+7,W-mg,y+7);
+  doc.line(mg,y+h,W-mg,y+h);
   // Label
   doc.setFont('helvetica','bold');
-  doc.setFontSize(8.5);
+  doc.setFontSize(fs);
   doc.setTextColor(30,30,40);
-  doc.text(label.toUpperCase(), mg, y+5);
-  return y+10;
+  doc.text(label.toUpperCase(), mg, y+h-2);
+  return y+h+3;
 }
 
 // ── MAT ACCENT COLORS (used only for the 3px left bar) ────────────
@@ -15034,7 +15064,7 @@ function buildInvoicePDF(klienti, fatura, data) {
   const {jsPDF} = window.jspdf;
   const doc = new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
   const mg=14, W=210;
-  let y = drawPdfHeader(doc, klienti, fatura, data, 'FATURË');
+  let y = drawPdfHeader(doc, klienti, fatura, data, 'FATURË', { big: true });
 
   // Prices come straight off each section (b.priceP/priceCut/priceBoard/
   // pricePaint). The line totals mirror calcBlockPrice exactly — including its
@@ -15042,6 +15072,11 @@ function buildInvoicePDF(klienti, fatura, data) {
   // the invoice total always equals the on-screen grand total.
   // Lek has no sub-unit — every money value is rounded to a whole Lek.
   const fmt = v => Number(Math.round(v)).toLocaleString('sq-AL') + ' Lek';
+
+  // Invoice type sizes — noticeably larger than the compact workshop tables
+  // (the invoice has few lines, so it can afford big, readable type).
+  const INV_SECTION = { fontSize: 12,  h: 9 };
+  const INV_TABLE   = { fontSize: 10.5, headFontSize: 10, headH: 9.5, rowH: 9.5 };
 
   const invCols = [
     {label:'Përshkrimi',     w:76, align:'left'},
@@ -15056,9 +15091,9 @@ function buildInvoicePDF(klienti, fatura, data) {
   for(const b of blocks){
     calcBlock(b);
     const color = MAT_PDF_COLORS[b.type]||[60,60,80];
-    if(y>240){ doc.addPage(); y=14; }
-    y+=4;
-    y = drawSectionBar(doc, b.name, color, y);
+    if(y>230){ doc.addPage(); y=14; }
+    y+=5;
+    y = drawSectionBar(doc, b.name, color, y, INV_SECTION);
     y+=2;
 
     const invRows = [];
@@ -15126,27 +15161,29 @@ function buildInvoicePDF(klienti, fatura, data) {
       }
     }
 
-    y = drawTable(doc, invCols, invRows, y);
+    y = drawTable(doc, invCols, invRows, y, INV_TABLE);
   }
 
-  // Grand total bar — white bg, thick top border, bold text
-  if(y>265){ doc.addPage(); y=14; }
-  y+=6;
-  doc.setDrawColor(40,40,50); doc.setLineWidth(0.8);
+  // Grand total bar — white bg, thick top border, bold text (large)
+  if(y>255){ doc.addPage(); y=14; }
+  y+=8;
+  doc.setDrawColor(40,40,50); doc.setLineWidth(1);
   doc.line(mg,y,W-mg,y);
   y+=1;
+  const totH = 13;
   doc.setFillColor(250,250,252);
-  doc.rect(mg,y,W-2*mg,9,'F');
-  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,30,40);
-  doc.text('TOTAL', mg+4, y+6.5);
-  doc.text(Number(Math.round(grandTotal)).toLocaleString('sq-AL') + ' Lek', W-mg-3, y+6.5, {align:'right'});
+  doc.rect(mg,y,W-2*mg,totH,'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(30,30,40);
+  doc.text('TOTAL', mg+4, y+9);
+  doc.setFontSize(15);
+  doc.text(Number(Math.round(grandTotal)).toLocaleString('sq-AL') + ' Lek', W-mg-3, y+9, {align:'right'});
   doc.setDrawColor(210,210,218); doc.setLineWidth(0.2);
-  doc.line(mg,y+9,W-mg,y+9);
-  y+=15;
+  doc.line(mg,y+totH,W-mg,y+totH);
+  y+=totH+8;
 
   // Footer
   doc.setDrawColor(180,180,200); doc.setLineWidth(0.2); doc.line(mg,y,W-mg,y); y+=5;
-  doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(160,160,180);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(160,160,180);
   doc.text(`Gjeneruar: ${new Date().toLocaleString('sq-AL')}  |  INCO Furniture`, mg, y);
 
   return doc;
