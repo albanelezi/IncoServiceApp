@@ -1025,9 +1025,23 @@ function rowsY(strips, inStripX, panelEdgeY) {
         // Carries no pieces (only spacers) → phantom strip. Skip.
         continue;
       }
+      // Promotion is ONLY legal for true float-drift artifacts: every
+      // promoted column must hold pieces that are effectively full strip
+      // height (within DRIFT mm) sitting at the strip bottom (ru ≈ 0).
+      // Anything else is a real layout the guard would silently RESTRUCTURE
+      // (moving/merging pieces, or emitting cuts that overrun the strip —
+      // the Agron Kurti 103 incident class), so we throw instead: a loud
+      // failure beats a saw-rejecting or piece-lying file.
+      const DRIFT = 2.0;   // max height drift the promotion may absorb (mm)
       const allSinglePiece = pieceOffcuts.every(oc => oc.uCuts.length === 1);
       if (allSinglePiece) {
         stripH = Math.max(...pieceOffcuts.map(oc => oc.uCuts[0].uPh));
+        for (const oc of pieceOffcuts) {
+          if ((oc.ru || 0) > 0.5 || (stripH - oc.uCuts[0].uPh) > DRIFT) {
+            throw new Error('WinCut rows invalid [rowsY guard]: primary-less strip is not a drift artifact '
+              + `(column ${oc.xPw}×${oc.uCuts[0].uPh} ru=${oc.ru || 0} vs stripH=${stripH}) — refusing to restructure`);
+          }
+        }
         primaryCuts = pieceOffcuts.map(oc => ({
           typeId: oc.uCuts[0].typeId,
           pw: oc.xPw,
@@ -1035,12 +1049,20 @@ function rowsY(strips, inStripX, panelEdgeY) {
         }));
         offcuts = [];
       } else {
+        // Mixed columns: promote the FIRST column only, and only when it is
+        // a single uCut group flush at the strip bottom whose height matches
+        // the strip within drift. The old code here collapsed multi-piece
+        // columns into one qty-1 primary (losing pieces from the refs) and
+        // grew stripH past the piece height (lying about dimensions).
         const first = pieceOffcuts[0];
-        const firstH = first.uCuts.reduce(
-          (s, u) => s + u.uQty * u.uPh, 0) + (first.ru || 0);
-        stripH = Math.max(firstH, st.stripH);
+        if (first.uCuts.length !== 1 || (first.ru || 0) > 0.5 ||
+            Math.abs(first.uCuts[0].uPh - st.stripH) > DRIFT) {
+          throw new Error('WinCut rows invalid [rowsY guard]: primary-less strip with mixed offcut columns '
+            + 'cannot be promoted safely — refusing to restructure');
+        }
+        stripH = first.uCuts[0].uPh;
         primaryCuts = [{
-          typeId: first.uCuts[0].typeId, pw: first.xPw, qty: 1,
+          typeId: first.uCuts[0].typeId, pw: first.xPw, qty: first.uCuts[0].uQty,
         }];
         const idx = offcuts.indexOf(first);
         offcuts = offcuts.slice(idx + 1).filter(oc => oc.uCuts && oc.uCuts.length > 0);
@@ -1077,7 +1099,8 @@ function rowsY(strips, inStripX, panelEdgeY) {
 //   panelEdgeX — panel X-edge trim (RX, once per panel). Default usage: trimEdge.
 //   _unused    — reserved for symmetry with rowsY signature; not used by rowsX
 //                (because per-strip RU/RV come from the strip objects themselves).
-function rowsX(strips, panelEdgeX, _unused) {
+function rowsX(strips, panelEdgeX, kerf) {
+  const _kerf = (typeof kerf === 'number' && isFinite(kerf)) ? kerf : 0;
   const rows = [{ type: 'RX', val: panelEdgeX, qty: 1, tid: null }];
   let i = 0;
   while (i < strips.length) {
@@ -1094,23 +1117,25 @@ function rowsX(strips, panelEdgeX, _unused) {
 
     // WINCUT VALIDITY GUARD (X-mode mirror).  An X-strip MUST have ≥1
     // primary U before the `V*` vBar marker.  When the packer makes a
-    // primary-less strip (strip width drifted a few mm wider than the
-    // pieces so none is "full strip width"), promote the first single-
-    // piece vBar to the primary U and shrink stripW to that piece's
-    // width.  Geometry-correct and tighter, mirrors the rowsY fix.
+    // primary-less strip, promote one vBar to the primary U and set stripW
+    // to that piece's width — but ONLY a candidate whose width can still
+    // CONTAIN every remaining vBar (ru + pieces + kerf gaps, with clearance).
+    // Blindly promoting the first vBar and shrinking stripW under wider
+    // remaining vBars emitted V cuts longer than their strip (the
+    // Agron Kurti 103 saw-rejected file). No safe candidate → throw; a loud
+    // failure beats a geometrically impossible file.
     if ((!uQty || uQty === 0) && vBars.length > 0) {
-      const first = vBars[0];
-      if (first.vQty === 1) {
-        uPh = first.barH; uQty = 1; uTid = first.typeId;
-        stripW = first.vPw;
-        vBars = vBars.slice(1);
-      } else {
-        // First vBar is a multi-piece row — promote it as the primary U
-        // anyway (uPh=barH, qty=vQty) so the file stays WinCut-valid;
-        // the final validator will catch any residual geometry issue.
-        uPh = first.barH; uQty = first.vQty; uTid = first.typeId;
-        vBars = vBars.slice(1);
+      const need = vb => (vb.ru || 0) + vb.vPw * vb.vQty + _kerf * Math.max(0, vb.vQty - 1);
+      const fitsAll = cand => vBars.every(vb => vb === cand || need(vb) <= cand.vPw - 0.5);
+      let cand = fitsAll(vBars[0]) ? vBars[0] : null;
+      if (!cand) cand = vBars.slice().sort((a, b) => b.vPw - a.vPw).find(fitsAll) || null;
+      if (!cand) {
+        throw new Error('WinCut rows invalid [rowsX guard]: primary-less strip has no promotable vBar '
+          + `that contains the rest (stripW=${stripW}, widths=${vBars.map(v => v.vPw).join('/')}) — refusing to emit overflowing V cuts`);
       }
+      uPh = cand.barH; uQty = cand.vQty; uTid = cand.typeId;
+      stripW = cand.vPw;
+      vBars = vBars.filter(vb => vb !== cand);
     }
 
     let batchQty = 1;
@@ -1165,7 +1190,7 @@ function rowsX(strips, panelEdgeX, _unused) {
 // trim" error: a strip trim (RX in Y-mode / RU in X-mode) followed
 // directly by the offcut/vBar asterisk with no primary cut between.
 // ─────────────────────────────────────────────────────────────────────
-function assertWincutRowsValid(rows, ctx) {
+function assertWincutRowsValid(rows, ctx, opts) {
   const where = ctx ? ` [${ctx}]` : '';
   if (!Array.isArray(rows) || rows.length === 0)
     throw new Error(`WinCut rows invalid${where}: empty row list`);
@@ -1182,40 +1207,90 @@ function assertWincutRowsValid(rows, ctx) {
   const G2    = mode === 'Y' ? 'RU' : 'RV';  //                     trim
   const G3    = mode === 'Y' ? 'U'  : 'V';   //                     cuts
 
+  // GEOMETRIC ENVELOPE (Agron Kurti 103 tripwire).  Beyond the grammar, no
+  // cut may overrun the material that contains it: each offcut/vBar group
+  // must fit inside its strip's opening dimension, each strip's content must
+  // fit across the panel, and the strips themselves must fit along it.
+  // kerf counts BETWEEN elements only (no trailing kerf), so exactly-full
+  // layouts stay valid.  Axis checks run only when panel dims are supplied.
+  const o     = opts || {};
+  const kerf  = (typeof o.kerf === 'number' && isFinite(o.kerf)) ? o.kerf : 0;
+  const TOLG  = 0.75;
+  // Panel-axis capacity for the strip stack / per-strip content.  In X-mode
+  // strips stack along panelL and strip content runs along panelW; Y-mode is
+  // the dual.
+  const stripAxisCap   = mode === 'Y' ? o.panelW : o.panelL;
+  const contentAxisCap = mode === 'Y' ? o.panelL : o.panelW;
+  const panelTrim = rows[0].val || 0;
+  let stripSum = 0, stripCount = 0;
+
   let i = 1;  // row 0 is the panel-edge trim (RY/RX)
   while (i < rows.length) {
     if (rows[i].type !== OPEN)
       throw new Error(`WinCut rows invalid${where}: row ${i + 1} expected ${OPEN} (strip open), got "${rows[i].type}"`);
+    const stripVal = rows[i].val || 0;
+    const stripQty = rows[i].qty || 1;
+    stripSum += stripVal * stripQty; stripCount += stripQty;
     i++;
     if (i >= rows.length || rows[i].type !== TRIM)
       throw new Error(`WinCut rows invalid${where}: row ${i + 1} expected ${TRIM} after ${OPEN}`);
+    let content = rows[i].val || 0;   // in-strip leading trim
+    let contentPieces = 0;
     i++;
     let prims = 0;
-    while (i < rows.length && rows[i].type === PRIM) { prims++; i++; }
+    while (i < rows.length && rows[i].type === PRIM) {
+      content += (rows[i].val || 0) * (rows[i].qty || 1);
+      contentPieces += (rows[i].qty || 1);
+      prims++; i++;
+    }
     if (prims === 0)
       throw new Error(`WinCut rows invalid${where}: row ${i + 1} — no ${PRIM} primary cut after ${TRIM} ("missing cut after rifilo"). This strip would crash WinCut.`);
     if (i < rows.length && rows[i].type === AST) {
       i++;
       let groups = 0;
       while (i < rows.length && rows[i].type === G1) {
+        content += rows[i].val || 0;   // group lead (bar height / column width)
+        contentPieces += 1;
         i++;
         if (i >= rows.length || rows[i].type !== G2)
           throw new Error(`WinCut rows invalid${where}: row ${i + 1} expected ${G2} in offcut/vBar group`);
+        let gSum = rows[i].val || 0;   // group leading trim
+        if (gSum < -0.01)
+          throw new Error(`WinCut rows invalid${where}: row ${i + 1} — negative ${G2} trim (${gSum})`);
+        let gQty = 0;
         i++;
         let c = 0;
-        while (i < rows.length && rows[i].type === G3) { c++; i++; }
+        while (i < rows.length && rows[i].type === G3) {
+          gSum += (rows[i].val || 0) * (rows[i].qty || 1);
+          gQty += (rows[i].qty || 1);
+          c++; i++;
+        }
         if (c === 0)
           throw new Error(`WinCut rows invalid${where}: row ${i + 1} expected ${G3} cut(s) in offcut/vBar group`);
+        gSum += kerf * Math.max(0, gQty - 1);
+        if (gSum > stripVal + TOLG)
+          throw new Error(`WinCut rows invalid${where}: ${G3} group needs ${gSum.toFixed(1)}mm but its ${OPEN} strip is only ${stripVal.toFixed(1)}mm — cut would overrun the strip`);
         groups++;
       }
       if (groups === 0)
         throw new Error(`WinCut rows invalid${where}: ${AST} marker with no offcut/vBar group following`);
     }
+    if (typeof contentAxisCap === 'number' && isFinite(contentAxisCap)) {
+      const total = content + kerf * Math.max(0, contentPieces - 1);
+      if (total > contentAxisCap + TOLG)
+        throw new Error(`WinCut rows invalid${where}: strip content needs ${total.toFixed(1)}mm but the panel is only ${contentAxisCap.toFixed(1)}mm across`);
+    }
+  }
+  if (typeof stripAxisCap === 'number' && isFinite(stripAxisCap)) {
+    const total = panelTrim + stripSum + kerf * Math.max(0, stripCount - 1);
+    if (total > stripAxisCap + TOLG)
+      throw new Error(`WinCut rows invalid${where}: strips need ${total.toFixed(1)}mm but the panel is only ${stripAxisCap.toFixed(1)}mm`);
   }
 }
 
-function genFileContent(panelL, panelW, panelT, supplier, rows, snap, velR, velA) {
-  assertWincutRowsValid(rows, 'genFileContent');
+function genFileContent(panelL, panelW, panelT, supplier, rows, snap, velR, velA, vOpts) {
+  assertWincutRowsValid(rows, 'genFileContent',
+    { panelL, panelW, kerf: vOpts && vOpts.kerf });
   // AltPacco = pack height (how tall a stack of boards this program cuts).
   // It was hardcoded to 90 mm = five 18 mm boards, which told the saw the
   // program was meant for a stacked pack — so on identical pieces it offered
@@ -1893,8 +1968,9 @@ function runOptimizerCore(input) {
     // strip/V-bar objects (already set to trimSub during packing).
     const rows = chosen.mode === 'Y'
       ? rowsY(chosen.strips, trimSub, trimEdge)
-      : rowsX(chosen.strips, trimEdge, trimSub);
-    const content = genFileContent(panelL, panelW, panelT, supplier, rows, snap, 3000, 32);
+      : rowsX(chosen.strips, trimEdge, kerf);
+    const content = genFileContent(panelL, panelW, panelT, supplier, rows, snap, 3000, 32,
+                                   { kerf });
 
     committedPanels.push({
       strips: chosen.strips,
@@ -1984,9 +2060,9 @@ function runOptimizerCore(input) {
           for (const ep of work) {
             const rows = ep.mode === 'Y'
               ? rowsY(ep.strips, trimSub, trimEdge)
-              : rowsX(ep.strips, trimEdge, trimSub);
+              : rowsX(ep.strips, trimEdge, kerf);
             const content = genFileContent(panelL, panelW, panelT, supplier,
-                                           rows, ep.snap, 3000, 32);
+                                           rows, ep.snap, 3000, 32, { kerf });
             let area = 0, cnt = 0;
             if (ep.mode === 'Y') {
               for (const st of ep.strips) {
