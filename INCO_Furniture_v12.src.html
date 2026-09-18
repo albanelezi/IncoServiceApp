@@ -3000,6 +3000,11 @@ body.hide-prices .col-totali { display: none !important; }
         style="padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--muted);background:#fff;cursor:pointer;">
         ✕ Pastro
       </button>
+      <div style="flex:1"></div>
+      <button class="admin-only" onclick="openTrashModal()" title="Porositë e fshira (mbahen 30 ditë)"
+        style="padding:8px 12px;border:1px solid #fca5a5;border-radius:7px;font-family:'DM Sans',sans-serif;font-size:12px;color:#b91c1c;background:#fef2f2;cursor:pointer;">
+        🗑 Koshi
+      </button>
     </div>
     <div class="tbl-card">
       <table>
@@ -3534,6 +3539,20 @@ body.hide-prices .col-totali { display: none !important; }
 <div id="shell-toast"></div>
 
 <!-- GRAND TOTAL BAR -->
+<!-- KOSHI — deleted-orders trash (admin-only entry point on the orders page) -->
+<div id="trash-modal" style="display:none;position:fixed;inset:0;background:rgba(15,18,25,.55);z-index:2600;align-items:center;justify-content:center;" onclick="if(event.target===this)closeTrashModal()">
+  <div style="background:#fff;border-radius:12px;width:min(860px,94vw);max-height:82vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.28);">
+    <div style="display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--border);">
+      <span style="font-size:18px;">🗑</span>
+      <div style="font-weight:700;font-size:15px;">Koshi i Porosive</div>
+      <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;">mbahen 30 ditë</div>
+      <div style="flex:1"></div>
+      <button onclick="closeTrashModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);">✕</button>
+    </div>
+    <div id="trash-modal-body" style="overflow:auto;"></div>
+  </div>
+</div>
+
 <div id="grand-total-bar">
   <span class="gtb-label">TOTALI</span>
   <div class="gtb-items">
@@ -4596,16 +4615,32 @@ async function delKlient(id, emri) {
   if(!confirm(msg)) return;
 
   // Cascade-delete using Firestore batch writes. Firestore caps at 500 ops
-  // per batch, so chunk the deletes. Each order = up to 3 doc deletes
-  // (porosite, porosite_index, kanban), so cap at 150 orders per batch
-  // to stay well under 500.
+  // per batch, so chunk the deletes. Each order = up to 4 ops (trash set +
+  // porosite / porosite_index / kanban deletes), so cap at 100 orders per
+  // batch to stay well under 500. Every removed order is moved to
+  // `porosite_trash` first (same soft-delete as deleteOrderById) so even a
+  // mistaken customer cascade is recoverable.
   try {
-    const CHUNK = 150;
+    const CHUNK = 100;
+    const nowIso = new Date().toISOString();
+    const delBy = (isPartner() && window._ROLE.partnerKlientId) ? window._ROLE.partnerKlientId : 'admin';
     for(let i = 0; i < orders.length; i += CHUNK) {
       const slice = orders.slice(i, i + CHUNK);
+      // Fetch the full docs for this slice (cache holds only summaries).
+      const fulls = await Promise.all(slice.map(o =>
+        db.collection('porosite').doc(String(o.id)).get().catch(() => null)));
       const batch = db.batch();
-      for(const o of slice) {
-        const idStr = String(o.id);
+      for(let k = 0; k < slice.length; k++) {
+        const idStr = String(slice[k].id);
+        const snap = fulls[k];
+        if (snap && snap.exists) {
+          batch.set(db.collection('porosite_trash').doc(idStr), {
+            order:     snap.data(),
+            kanban:    _KANBAN_CACHE[idStr] || null,
+            deletedAt: nowIso,
+            deletedBy: delBy,
+          });
+        }
         batch.delete(db.collection('porosite').doc(idStr));
         batch.delete(db.collection('porosite_index').doc(idStr));
         batch.delete(db.collection('kanban').doc(idStr));
@@ -5199,7 +5234,26 @@ async function persistOrder(order) {
 async function deleteOrderById(id) {
   const idStr = String(id);
   try {
+    // SOFT DELETE: move the order to `porosite_trash` in the SAME batch that
+    // removes it, so an accidental "Fshi" is always recoverable (Koshi modal,
+    // admin-only; auto-purged after 30 days). The trash doc carries the FULL
+    // order (blocks/panels included) plus its kanban state, so a restore is
+    // byte-faithful. If the order doc can't be fetched (already gone), fall
+    // through with order:null — the delete still proceeds.
+    let fullOrder = null;
+    try {
+      const snap = await db.collection('porosite').doc(idStr).get();
+      if (snap.exists) fullOrder = snap.data();
+    } catch (_) { /* fetch best-effort */ }
     const batch = db.batch();
+    if (fullOrder) {
+      batch.set(db.collection('porosite_trash').doc(idStr), {
+        order:     fullOrder,
+        kanban:    _KANBAN_CACHE[idStr] || null,
+        deletedAt: new Date().toISOString(),
+        deletedBy: (isPartner() && window._ROLE.partnerKlientId) ? window._ROLE.partnerKlientId : 'admin',
+      });
+    }
     batch.delete(db.collection('porosite').doc(idStr));
     batch.delete(db.collection('porosite_index').doc(idStr));
     batch.delete(db.collection('kanban').doc(idStr));
@@ -5236,6 +5290,145 @@ async function deleteOrderById(id) {
     console.error('[INCO] order delete failed:', e);
     shellToast('Gabim: fshirja dështoi (' + (e.message||'rrjeti') + ')');
     return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// KOSHI (order trash) — soft-delete restore & purge, admin-only UI
+// ═══════════════════════════════════════════════════════════════
+// Deleted orders land in `porosite_trash/{id}` = { order, kanban, deletedAt,
+// deletedBy }. The Koshi modal lists them; "Rikthe" writes the order back
+// (under its original id, or a fresh id if the number was reused meanwhile),
+// "Fshi përgjithmonë" purges one entry. Entries older than PURGE_DAYS are
+// auto-purged whenever the modal opens.
+const _TRASH_PURGE_DAYS = 30;
+
+async function _loadTrash() {
+  const snap = await db.collection('porosite_trash').get();
+  const rows = snap.docs.map(d => ({ key: d.id, ...d.data() }));
+  rows.sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || ''));
+  return rows;
+}
+
+async function openTrashModal() {
+  const modal = document.getElementById('trash-modal');
+  const body  = document.getElementById('trash-modal-body');
+  if (!modal || !body) return;
+  modal.style.display = 'flex';
+  body.innerHTML = '<div style="padding:24px;color:var(--muted);font-size:13px;">Duke ngarkuar…</div>';
+  let rows;
+  try { rows = await _loadTrash(); }
+  catch (e) {
+    body.innerHTML = `<div style="padding:24px;color:#b91c1c;font-size:13px;">Gabim: ${escHtml(e.message || 'rrjeti')}</div>`;
+    return;
+  }
+  // Auto-purge entries past the retention window (fire-and-forget).
+  const cutoff = new Date(Date.now() - _TRASH_PURGE_DAYS * 86400000).toISOString();
+  const stale = rows.filter(r => r.deletedAt && r.deletedAt < cutoff);
+  if (stale.length) {
+    try {
+      const batch = db.batch();
+      stale.forEach(r => batch.delete(db.collection('porosite_trash').doc(r.key)));
+      await batch.commit();
+      rows = rows.filter(r => !stale.includes(r));
+    } catch (_) { /* non-fatal */ }
+  }
+  if (!rows.length) {
+    body.innerHTML = '<div style="padding:24px;color:var(--muted);font-size:13px;">Koshi është bosh. Porositë e fshira qëndrojnë këtu ' + _TRASH_PURGE_DAYS + ' ditë.</div>';
+    return;
+  }
+  body.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="text-align:left;color:var(--muted);font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.5px;">
+        <th style="padding:8px 10px;">FATURA</th><th style="padding:8px 10px;">KLIENTI</th>
+        <th style="padding:8px 10px;">DATA</th><th style="padding:8px 10px;">FSHIRË MË</th>
+        <th style="padding:8px 10px;">TOTALI</th><th style="padding:8px 10px;"></th>
+      </tr></thead>
+      <tbody>${rows.map(r => {
+        const o = r.order || {};
+        const delDate = r.deletedAt ? r.deletedAt.slice(0, 16).replace('T', ' ') : '—';
+        return `<tr style="border-top:1px solid var(--border);">
+          <td style="padding:8px 10px;font-family:'DM Mono',monospace;">#${escHtml(String(o.fatura || r.key))}</td>
+          <td style="padding:8px 10px;">${escHtml(o.klient_emri || '—')}</td>
+          <td style="padding:8px 10px;font-family:'DM Mono',monospace;">${escHtml(o.data || '—')}</td>
+          <td style="padding:8px 10px;font-family:'DM Mono',monospace;color:var(--muted);">${escHtml(delDate)}</td>
+          <td style="padding:8px 10px;font-family:'DM Mono',monospace;">${fmtALL(o.total || 0)} Lek</td>
+          <td style="padding:8px 10px;white-space:nowrap;text-align:right;">
+            <button class="btn btn-sm" style="background:#1d6a3a;color:#fff;" onclick="restoreTrashedOrder('${escHtml(r.key)}')">↩ Rikthe</button>
+            <button class="btn btn-sm btn-red" onclick="purgeTrashedOrder('${escHtml(r.key)}')">Fshi përgjithmonë</button>
+          </td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+}
+
+function closeTrashModal() {
+  const modal = document.getElementById('trash-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function restoreTrashedOrder(key) {
+  try {
+    const snap = await db.collection('porosite_trash').doc(String(key)).get();
+    if (!snap.exists) { shellToast('Kjo porosi nuk është më në kosh', 'err'); return; }
+    const t = snap.data();
+    const order = t.order;
+    if (!order) { shellToast('Të dhënat e porosisë mungojnë në kosh', 'err'); return; }
+
+    // Collision guard: the trailing-id counter rewind means the original id
+    // may have been REUSED by a newer order. If so, restore under a fresh id
+    // (the per-customer fatura number is preserved — that is the invoice
+    // identity; the doc id is internal).
+    let docId = String(order.id != null ? order.id : key);
+    const existing = await db.collection('porosite').doc(docId).get();
+    if (existing.exists) {
+      const newId = await allocateOrderId();
+      order.id = newId;
+      docId = String(newId);
+    }
+
+    const batch = db.batch();
+    batch.set(db.collection('porosite').doc(docId), order);
+    batch.set(db.collection('porosite_index').doc(docId), _summaryOfOrder(order));
+    if (t.kanban) batch.set(db.collection('kanban').doc(docId), t.kanban);
+    batch.delete(db.collection('porosite_trash').doc(String(key)));
+    await batch.commit();
+
+    // Make sure the id counter is ahead of the restored id, so a future
+    // allocation can never hand out this number again.
+    try {
+      const counterRef = db.collection('counters').doc('porosite');
+      const idNum = parseInt(docId);
+      if (!isNaN(idNum)) {
+        await db.runTransaction(async tx => {
+          const c = await tx.get(counterRef);
+          const next = c.exists ? (c.data().next || 100) : 100;
+          if (idNum + 1 > next) tx.set(counterRef, { next: idNum + 1 });
+        });
+      }
+    } catch (_) { /* non-fatal */ }
+
+    // Refresh local caches + UI.
+    _ORDERS_CACHE = _ORDERS_CACHE.filter(o => String(o.id) !== docId);
+    _ORDERS_CACHE.push(_summaryOfOrder(order));
+    if (t.kanban) _KANBAN_CACHE[docId] = t.kanban;
+    shellToast(`Porosia #${order.fatura || docId} u rikthye ✓`, 'ok');
+    renderAllOrders();
+    openTrashModal();   // re-render the list
+  } catch (e) {
+    console.error('[INCO] trash restore failed:', e);
+    shellToast('Gabim: rikthimi dështoi (' + (e.message || 'rrjeti') + ')', 'err');
+  }
+}
+
+async function purgeTrashedOrder(key) {
+  if (!confirm('Fshi këtë porosi PËRGJITHMONË? Ky veprim nuk kthehet.')) return;
+  try {
+    await db.collection('porosite_trash').doc(String(key)).delete();
+    shellToast('U fshi përgjithmonë', 'ok');
+    openTrashModal();
+  } catch (e) {
+    shellToast('Gabim: ' + (e.message || 'rrjeti'), 'err');
   }
 }
 

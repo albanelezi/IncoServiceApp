@@ -175,6 +175,20 @@ service cloud.firestore {
             && ownerOfOrder() == partnerKlientId());
     }
 
+    // ───── Porosite trash (soft-deleted orders) ───────────────────
+    // Deleting an order MOVES it here (deleteOrderById / klient cascade)
+    // instead of destroying it; the admin's Koshi modal restores or purges.
+    // Partners may WRITE a trash entry only for orders they own (their
+    // delete button does the move), but only the admin can read, restore,
+    // or purge — the trash is an admin recovery tool, not a partner view.
+    match /porosite_trash/{orderId} {
+      allow read, delete: if isAdmin();
+      allow create: if isAdmin()
+        || (isKnownPartner()
+            && request.resource.data.order.createdBy == partnerKlientId());
+      allow update: if isAdmin();
+    }
+
     // ───── Counters (sequential ID allocators) ────────────────────
     // Both roles need read/write to allocate IDs for new orders and
     // klients.  Worst-case abuse is bumping a counter (annoying, not a
