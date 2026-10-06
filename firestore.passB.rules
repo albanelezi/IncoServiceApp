@@ -197,13 +197,13 @@ service cloud.firestore {
     // Shop-floor data entered by the admin's paint-shop device; partners
     // never touch the workflow tabs.
     match /paint_sessions/{sessionId} {
-      allow read, write: if isAdmin();
+      allow read, create, update: if isAdmin();
+      allow delete: if false;          // soft delete only (audited in-doc)
     }
 
-    // ───── Workers (shop personnel) ───────────────────────────────
+    // ───── Workers (shop personnel — names stay internal) ─────────
     match /workers/{workerId} {
-      allow read:  if isAuthorized();
-      allow write: if isAdmin();
+      allow read, write: if isAdmin();
     }
 
     // ───── Counters (sequential ID allocators) ────────────────────

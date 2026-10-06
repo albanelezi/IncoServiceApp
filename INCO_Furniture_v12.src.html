@@ -2240,7 +2240,7 @@ canvas { border-radius: 3px; display: block; border: 1px solid #e5e7eb; }
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 8px;
 }
 .wf-paint-sub-stage {
@@ -2255,7 +2255,15 @@ canvas { border-radius: 3px; display: block; border: 1px solid #e5e7eb; }
 .wf-paint-sub-stage:hover:not(.locked):not(.done) { background: #f3f4f6; }
 .wf-paint-sub-stage.in-progress { background: #fef3c7; border-color: #f59e0b; }
 .wf-paint-sub-stage.done        { background: #dcfce7; border-color: #22c55e; }
+.wf-paint-sub-stage.running     { background: #dbeafe; border-color: #2563eb; }
+.wf-paint-sub-stage.paused      { background: #fff7ed; border-color: #fb923c; }
 .wf-paint-sub-stage.locked      { opacity: .45; cursor: not-allowed; }
+.wf-paint-sub-stage .ps-time {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: #1e40af;
+}
 .wf-paint-sub-stage .ps-label {
   font-family: 'DM Mono', monospace;
   font-size: 9px;
@@ -2602,6 +2610,158 @@ canvas { border-radius: 3px; display: block; border: 1px solid #e5e7eb; }
   gap: 8px;
   flex-shrink: 0;
 }
+
+/* ── Paint time tracking (Lyerje) ─────────────────────────────── */
+.pt-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.pt-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 14px; border: 1.5px solid #e5e7eb;
+  background: #fff; font-family: 'DM Mono', monospace; font-size: 11px;
+  font-weight: 700; color: #374151; cursor: pointer;
+  max-width: 100%;                    /* wrap long labels on narrow screens */
+}
+.pt-orphans {
+  margin-bottom: 12px; padding: 10px 12px; border: 1.5px solid #fca5a5;
+  border-radius: 10px; background: #fef2f2;
+}
+.pt-orphans-title { font-size: 12px; font-weight: 700; color: #b91c1c; margin-bottom: 6px; }
+.pt-orphan-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 6px 0; border-top: 1px dashed #fecaca;
+}
+.pt-orphan-row:first-of-type { border-top: none; }
+.pt-orphan-what { font-size: 12px; color: var(--text); flex: 1; min-width: 200px; }
+.pt-chip:hover { border-color: #cbd5e1; }
+.pt-chip .ck {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 3px; border-radius: 8px;
+  background: rgba(0,0,0,.08); color: #6b7280; font-size: 9px;
+}
+.pt-chip.done    { background: #dcfce7; border-color: #16a34a; color: #15803d; }
+.pt-chip.done .ck    { background: #16a34a; color: #fff; }
+.pt-chip.next    { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
+.pt-chip.next .ck    { background: #f59e0b; color: #fff; }
+.pt-chip.running { background: #dbeafe; border-color: #2563eb; color: #1e40af; }
+.pt-chip.running .ck { background: #2563eb; color: #fff; animation: ptPulse 1.4s infinite; }
+.pt-chip.paused  { background: #fff7ed; border-color: #fb923c; color: #9a3412; }
+.pt-chip.paused .ck  { background: #fb923c; color: #fff; }
+.pt-chip.locked  { opacity: .45; background: #f3f4f6; }
+.pt-chip-t { font-weight: 600; opacity: .9; }
+@keyframes ptPulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+.pt-active {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  margin-top: 8px; padding: 8px 10px; border: 1px solid #e5e7eb;
+  border-radius: 8px; background: #f9fafb; cursor: default;
+}
+.pt-active.running { background: #eff6ff; border-color: #93c5fd; }
+.pt-active.paused  { background: #fff7ed; border-color: #fdba74; }
+.pt-active-label   { font-weight: 700; font-size: 13px; color: var(--text); }
+.pt-active-time    { font-family: 'DM Mono', monospace; font-size: 14px; font-weight: 700; color: #1e40af; }
+.pt-active-workers { font-size: 12px; color: var(--text2); }
+.pt-active-btns    { display: flex; gap: 6px; margin-left: auto; }
+.pt-btn            { font-weight: 700; color: #fff; border: none; }
+.pt-btn.start  { background: #2563eb; }
+.pt-btn.pause  { background: #f59e0b; }
+.pt-btn.finish { background: #16a34a; }
+.pt-btn.revert { background: #6b7280; }
+.pt-stale {
+  font-size: 11px; font-weight: 700; color: #b91c1c; background: #fef2f2;
+  border: 1px solid #fecaca; border-radius: 6px; padding: 2px 6px;
+}
+.pt-link {
+  background: none; border: none; color: #1a4a8c; font-weight: 700;
+  font-size: 12px; cursor: pointer; padding: 4px 0;
+}
+.pt-link:hover { text-decoration: underline; }
+
+.pt-overlay {
+  position: fixed; inset: 0; background: rgba(15,18,25,.55); z-index: 2600;
+  display: none; align-items: center; justify-content: center;
+}
+.pt-modal {
+  background: #fff; border-radius: 12px; width: min(1000px, 96vw); max-height: 88vh;
+  display: flex; flex-direction: column; box-shadow: 0 24px 64px rgba(0,0,0,.28);
+}
+.pt-modal-head {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.pt-modal-title { font-weight: 700; font-size: 16px; color: var(--text); }
+.pt-modal-sub   { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.pt-x { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--muted); margin-left: auto; }
+.pt-modal-body { overflow: auto; padding: 14px 20px 20px; }
+.pt-summary {
+  display: flex; gap: 18px; flex-wrap: wrap; padding: 10px 20px;
+  background: #f9fafb; border-bottom: 1px solid var(--border);
+  font-size: 12px; color: var(--text2);
+}
+.pt-summary b { color: var(--text); font-family: 'DM Mono', monospace; }
+.pt-empty { padding: 24px; color: var(--muted); font-size: 13px; }
+
+.pt-step { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.pt-step.locked { opacity: .55; }
+.pt-step.focus  { box-shadow: 0 0 0 2px #93c5fd; }
+.pt-step-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pt-step-no {
+  width: 22px; height: 22px; border-radius: 50%; background: #e5e7eb;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; flex-shrink: 0;
+}
+.pt-step-name  { font-weight: 700; font-size: 13px; color: var(--text); }
+.pt-step-total { font-family: 'DM Mono', monospace; font-size: 12px; color: #1e40af; font-weight: 700; }
+.pt-step-btns  { display: flex; gap: 6px; margin-left: auto; }
+.pt-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px;
+  font-family: 'DM Mono', monospace; letter-spacing: .3px;
+  background: #f3f4f6; color: #6b7280;
+}
+.pt-badge.done    { background: #dcfce7; color: #15803d; }
+.pt-badge.running { background: #dbeafe; color: #1e40af; }
+.pt-badge.paused  { background: #fff7ed; color: #9a3412; }
+.pt-badge.next    { background: #fef3c7; color: #92400e; }
+table.pt-int { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+table.pt-int th {
+  text-align: left; font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace;
+  letter-spacing: .5px; padding: 4px 6px; border-bottom: 1px solid #eef0f4; font-weight: 700;
+}
+table.pt-int td { padding: 5px 6px; border-bottom: 1px solid #f4f5f8; vertical-align: middle; }
+table.pt-int td.mono { font-family: 'DM Mono', monospace; white-space: nowrap; }
+.pt-src {
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px;
+  background: #eef2ff; color: #3730a3; font-family: 'DM Mono', monospace;
+}
+.pt-src.manual { background: #fef3c7; color: #92400e; }
+.pt-icon-btn { background: none; border: none; cursor: pointer; font-size: 13px; padding: 2px 4px; opacity: .75; }
+.pt-icon-btn:hover { opacity: 1; }
+.pt-form {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 8px;
+  padding: 10px; background: #f9fafb; border: 1px dashed #cbd5e1; border-radius: 8px;
+}
+.pt-form label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); font-weight: 700; }
+.pt-form input[type="datetime-local"], .pt-form input[type="text"] {
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+  font-size: 13px; color: var(--text); background: #fff;
+}
+.pt-form-workers { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.pt-wchip {
+  display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 14px;
+  border: 1.5px solid #e5e7eb; background: #fff; font-size: 12px; font-weight: 700;
+  color: #374151; cursor: pointer; user-select: none;
+}
+.pt-wchip.on { background: #dbeafe; border-color: #2563eb; color: #1e40af; }
+
+/* Konfigurim → Punëtorët */
+.wk-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; margin-bottom: 6px;
+}
+.wk-row.off { opacity: .55; }
+.wk-name {
+  flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+  font-size: 13px; color: var(--text); background: #fff;
+}
+.wk-status { font-size: 11px; font-weight: 700; font-family: 'DM Mono', monospace; color: var(--muted); min-width: 60px; }
 .wf-dept-empty {
   padding: 60px 20px;
   text-align: center;
@@ -3160,6 +3320,7 @@ body.hide-prices .col-totali { display: none !important; }
       <button class="cfg-tab" data-cfgtab="mdf"       onclick="setCfgTab('mdf')">MDF <span class="cfg-tab-count" id="cfg-tab-count-mdf">0</span></button>
       <button class="cfg-tab" data-cfgtab="fiber"     onclick="setCfgTab('fiber')">Fiber <span class="cfg-tab-count" id="cfg-tab-count-fiber">0</span></button>
       <button class="cfg-tab" data-cfgtab="tenie"     onclick="setCfgTab('tenie')">Tenie <span class="cfg-tab-count" id="cfg-tab-count-tenie">0</span></button>
+      <button class="cfg-tab" data-cfgtab="workers"   onclick="setCfgTab('workers')">Punëtorët <span class="cfg-tab-count" id="cfg-tab-count-workers">0</span></button>
     </div>
 
     <!-- MATERIALS PANE — visible for the four material tabs; filtered by type -->
@@ -3180,6 +3341,21 @@ body.hide-prices .col-totali { display: none !important; }
       </div>
       <div id="cfg-add-tenie-form" class="cfg-add-form" style="display:none;"></div>
       <div id="cfg-tenies-list" class="cfg-tenies-list"></div>
+    </div>
+
+    <!-- WORKERS PANE — shop personnel picked when a paint step is timed.
+         Saved IMMEDIATELY to the `workers` collection (not part of the
+         Konfigurim draft/save cycle). Workers are deactivated, never deleted,
+         so historical time entries keep pointing at a real record. -->
+    <div id="cfg-workers-pane" style="display:none;">
+      <div class="cfg-pane-toolbar" style="flex-wrap:wrap;gap:8px;">
+        <input type="text" id="wk-new-name" placeholder="Emri i punëtorit…" maxlength="60"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();wkAdd();}"
+          style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;min-width:220px;">
+        <button type="button" class="btn btn-sm cfg-add-btn" onclick="wkAdd()">+ Shto punëtor</button>
+        <span style="font-size:11px;color:var(--muted);">Ruhet menjëherë · përdoret te koha e lyerjes</span>
+      </div>
+      <div id="cfg-workers-list"></div>
     </div>
 
     <!-- LEGACY HIDDEN ELEMENTS — referenced by save/load code paths,
@@ -3539,6 +3715,40 @@ body.hide-prices .col-totali { display: none !important; }
 <div id="shell-toast"></div>
 
 <!-- GRAND TOTAL BAR -->
+<!-- LYERJE — paint time-tracking detail (per order section): every interval
+     of the 6 paint steps, manual add / edit / delete, start-pause-finish. -->
+<div id="pt-modal" class="pt-overlay" onclick="if(event.target===this)ptCloseModal()">
+  <div class="pt-modal">
+    <div class="pt-modal-head">
+      <div>
+        <div class="pt-modal-title" id="pt-modal-title">🕒 Kohët e lyerjes</div>
+        <div class="pt-modal-sub" id="pt-modal-sub"></div>
+      </div>
+      <button class="pt-x" onclick="ptCloseModal()">✕</button>
+    </div>
+    <div id="pt-modal-summary"></div>
+    <div class="pt-modal-body" id="pt-modal-body"></div>
+  </div>
+</div>
+
+<!-- LYERJE — worker picker shown when a paint step is started / resumed -->
+<div id="pt-workers-modal" class="pt-overlay" style="z-index:2700;" onclick="if(event.target===this)_ptPickDone(false)">
+  <div class="pt-modal" style="width:min(540px,94vw);">
+    <div class="pt-modal-head">
+      <div>
+        <div class="pt-modal-title" id="pt-pick-title">Kush punon?</div>
+        <div class="pt-modal-sub">Zgjidh një ose më shumë punëtorë</div>
+      </div>
+      <button class="pt-x" onclick="_ptPickDone(false)">✕</button>
+    </div>
+    <div class="pt-modal-body" id="pt-pick-body" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--border);">
+      <button class="btn btn-sm btn-ghost" onclick="_ptPickDone(false)">Anulo</button>
+      <button class="btn btn-sm pt-btn start" id="pt-pick-ok" onclick="_ptPickDone(true)">▶ Fillo</button>
+    </div>
+  </div>
+</div>
+
 <!-- KOSHI — deleted-orders trash (admin-only entry point on the orders page) -->
 <div id="trash-modal" style="display:none;position:fixed;inset:0;background:rgba(15,18,25,.55);z-index:2600;align-items:center;justify-content:center;" onclick="if(event.target===this)closeTrashModal()">
   <div style="background:#fff;border-radius:12px;width:min(860px,94vw);max-height:82vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.28);">
@@ -4652,6 +4862,11 @@ async function delKlient(id, emri) {
       _ORDERS_CACHE = _ORDERS_CACHE.filter(o => !sliceIds.has(o.id));
       for(const o of slice) delete _KANBAN_CACHE[String(o.id)];
     }
+    // Deleted orders are off the shop floor: stop any paint timers on them.
+    for (const o of orders) {
+      try { await _ptCloseOpenSessionsForOrder(String(o.id), 'order-deleted'); }
+      catch (e) { console.warn('[pt] closing timers of deleted order failed:', e); }
+    }
     // Per-client fatura counter: best-effort cleanup. It's just a counter
     // and the next allocation will re-seed from cache, so failure here is
     // not fatal.
@@ -5209,10 +5424,35 @@ async function applyDriftUpdateToCurrentOrder() {
 async function persistOrder(order) {
   const idStr = String(order.id);
   try {
-    const batch = db.batch();
-    batch.set(db.collection('porosite').doc(idStr), order);
-    batch.set(db.collection('porosite_index').doc(idStr), _summaryOfOrder(order));
-    await batch.commit();
+    const ref = db.collection('porosite').doc(idStr);
+    await db.runTransaction(async tx => {
+      const cur = await tx.get(ref);
+      // Workflow (stage progress, paint step flags + timer locks) is owned by
+      // the workflow views, never by this editor: keep the SERVER's copy for
+      // every section (matched by block.id) so an editor opened before
+      // shop-floor progress can't roll it back on save. The one part the
+      // editor does write — CNC drawings ("Modifiko Dokumentin") — wins when
+      // its design is newer than the server's.
+      if (cur.exists) {
+        const wfById = new Map(((cur.data() || {}).blocks || [])
+          .filter(b => b && b.id != null && b.workflow)
+          .map(b => [String(b.id), b.workflow]));
+        const newest = ds => Math.max(0, ...(Array.isArray(ds) ? ds : []).map(d => (d && d.updatedAt) || 0));
+        for (const b of (order.blocks || [])) {
+          if (!b || b.id == null || !wfById.has(String(b.id))) continue;
+          const merged = JSON.parse(JSON.stringify(wfById.get(String(b.id))));
+          const edDesigns = b.workflow && b.workflow.cnc && b.workflow.cnc.designs;
+          const svDesigns = merged.cnc && merged.cnc.designs;
+          if (Array.isArray(edDesigns) && edDesigns.length && newest(edDesigns) > newest(svDesigns)) {
+            merged.cnc = merged.cnc || {};
+            merged.cnc.designs = edDesigns;
+          }
+          b.workflow = merged;
+        }
+      }
+      tx.set(ref, order);
+      tx.set(db.collection('porosite_index').doc(idStr), _summaryOfOrder(order));
+    });
     // Update local cache
     const idx = _ORDERS_CACHE.findIndex(o => o.id === order.id);
     if(idx >= 0) _ORDERS_CACHE[idx] = _summaryOfOrder(order);
@@ -5226,11 +5466,11 @@ async function persistOrder(order) {
 }
 
 // Delete an order: removes from both collections + cache + kanban entry.
-// Delete an order: removes from both collections + cache + kanban entry.
-// After successful delete, if the deleted order's ID was the highest in use,
-// rolls the porosite counter back so that ID becomes available for reuse.
-// (Middle-deleted IDs leave gaps and stay unreused; only the trailing latest
-// number is reclaimable.)
+// Delete an order: moves it to the trash and removes it from both collections
+// + cache + kanban entry. The internal order id is NEVER reused (no counter
+// rewind): paint time entries and trash restores are keyed by it, so a reused
+// id would attach a deleted order's history to a new order. (The visible
+// per-customer invoice number is a separate counter and is unaffected.)
 async function deleteOrderById(id) {
   const idStr = String(id);
   try {
@@ -5261,29 +5501,9 @@ async function deleteOrderById(id) {
     _ORDERS_CACHE = _ORDERS_CACHE.filter(o => o.id !== id);
     delete _KANBAN_CACHE[idStr];
 
-    // Rewind the order counter if appropriate. We always set it to
-    // max(remaining IDs) + 1 when the current value is higher. This makes
-    // a deleted-trailing-number reusable but leaves middle-gap deletes alone.
-    // Failure here is non-fatal — worst case the next allocation skips a
-    // number, which the user won't notice.
-    try {
-      const remainingIds = _ORDERS_CACHE
-        .map(o => parseInt(o.id))
-        .filter(n => !isNaN(n));
-      const newMax  = remainingIds.length ? Math.max(...remainingIds) : 99;
-      const newNext = newMax + 1;
-      const counterRef = db.collection('counters').doc('porosite');
-      await db.runTransaction(async tx => {
-        const snap = await tx.get(counterRef);
-        if(!snap.exists) return;
-        const cur = snap.data().next || 100;
-        if(cur > newNext) {
-          tx.update(counterRef, { next: newNext });
-        }
-      });
-    } catch(rewindErr) {
-      console.warn('[INCO] counter rewind after delete failed (non-fatal):', rewindErr);
-    }
+    // A deleted order is off the shop floor: stop any paint timer on it.
+    try { await _ptCloseOpenSessionsForOrder(idStr, 'order-deleted'); }
+    catch (e) { console.warn('[pt] closing timers of deleted order failed:', e); }
 
     return true;
   } catch(e) {
@@ -7122,6 +7342,7 @@ const _CFG_TAB_LABELS = {
   mdf:       'MDF',
   fiber:     'Fiber',
   tenie:     'Tenie',
+  workers:   'Punëtorët',
 };
 
 function setCfgTab(tab) {
@@ -7131,9 +7352,15 @@ function setCfgTab(tab) {
   document.querySelectorAll('.cfg-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.cfgtab === tab);
   });
-  const matPane   = document.getElementById('cfg-mat-pane');
-  const teniePane = document.getElementById('cfg-tenie-pane');
-  if (tab === 'tenie') {
+  const matPane     = document.getElementById('cfg-mat-pane');
+  const teniePane   = document.getElementById('cfg-tenie-pane');
+  const workersPane = document.getElementById('cfg-workers-pane');
+  if (workersPane) workersPane.style.display = tab === 'workers' ? '' : 'none';
+  if (tab === 'workers') {
+    if (matPane)   matPane.style.display   = 'none';
+    if (teniePane) teniePane.style.display = 'none';
+    renderWorkersList(true);
+  } else if (tab === 'tenie') {
     if (matPane)   matPane.style.display   = 'none';
     if (teniePane) teniePane.style.display = '';
     renderTeniesList();
@@ -7161,6 +7388,11 @@ function _cfgUpdateTabCounts() {
   }
   const tenieEl = document.getElementById('cfg-tab-count-tenie');
   if (tenieEl) tenieEl.textContent = (P.tenies || []).length;
+  // Workers live in their own collection — count once loaded. (window._wk is
+  // assigned further down the script; guard in case this runs first.)
+  if (!window._wk) return;
+  if (window._wk.list) _wkUpdateCount();
+  else _wkEnsureLoaded().then(_wkUpdateCount).catch(() => {});
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -15544,6 +15776,41 @@ function showMsg(txt) {
   el._t = setTimeout(()=>el.style.display='none', 3000);
 }
 
+// ─── New-version notice ──────────────────────────────────────────
+// Shop-floor tablets stay open for days; after a deploy an old tab keeps
+// running old code (and can write data in an old shape). Hosting's ETag
+// changes on every deploy: when it differs from the one seen at startup, ask
+// for a reload. Never reload automatically — there may be unsaved work.
+(function _appVersionWatch() {
+  if (!/^https?:$/.test(location.protocol)) return;
+  let base = null, shown = false;
+  async function check() {
+    if (shown) return;
+    try {
+      const r = await fetch(location.origin + '/', { method: 'HEAD', cache: 'no-store' });
+      const tag = r.headers.get('etag') || r.headers.get('last-modified');
+      if (!tag) return;
+      if (base == null) { base = tag; return; }
+      if (tag !== base) { shown = true; showBanner(); }
+    } catch (_) { /* offline — try again later */ }
+  }
+  function showBanner() {
+    const el = document.createElement('div');
+    el.id = 'app-update-banner';
+    el.style.cssText = 'position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:3000;'
+      + 'background:#1e3a8a;color:#fff;padding:10px 16px;border-radius:10px;'
+      + 'box-shadow:0 8px 24px rgba(0,0,0,.25);display:flex;gap:12px;align-items:center;'
+      + 'font-size:13px;font-weight:600;';
+    el.innerHTML = '🔄 Ka një version të ri të aplikacionit.'
+      + ' <button style="background:#fff;color:#1e3a8a;border:none;border-radius:6px;padding:6px 12px;'
+      + 'font-weight:700;cursor:pointer;" onclick="location.reload()">Rifresko tani</button>';
+    document.body.appendChild(el);
+  }
+  check();
+  setInterval(check, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+})();
+
 // ─── INIT ────────────────────────────────────────────────────────
 document.getElementById('data').value = new Date().toISOString().split('T')[0];
 renderKlientet();
@@ -15885,58 +16152,81 @@ async function _wfApplyOrderColumnTransition(orderId, targetCol) {
   const allowed = ['pritje', 'procesim', 'perfunduar', 'derguar'];
   if (!allowed.includes(targetCol)) return { changed: false };
 
-  const order = await loadFullOrder(orderId);
-  if (!order || !Array.isArray(order.blocks)) return { changed: false };
-
+  // Read-modify-write in ONE transaction so a concurrent stage change or
+  // office edit is never overwritten by this bulk update.
+  const ref = db.collection('porosite').doc(String(orderId));
   let changed = false;
-  const now = Date.now();
-  const setStage = (st, status) => {
-    if (st.status !== status) {
-      st.status = status;
-      if (status === 'done')    st.doneAt = now;
-      if (status === 'pending') st.doneAt = null;
-      changed = true;
-    }
-  };
-
-  for (const block of order.blocks) {
-    wfEnsureBlockWorkflow(block);
-    const applicable = wfApplicableStages(block);
-
-    if (targetCol === 'perfunduar' || targetCol === 'derguar') {
-      // Mark every applicable top-level stage + paint sub-stage as done.
-      for (const stage of WF_STAGES) {
-        if (applicable[stage]) setStage(block.workflow[stage], 'done');
-      }
-      if (applicable.paint) {
+  let freshBlocks = null;
+  try {
+    await db.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return;
+      const blocks = snap.data().blocks;
+      if (!Array.isArray(blocks)) return;
+      changed = false;                         // the body may be retried
+      const now = Date.now();
+      const setStage = (st, status) => {
+        if (st.status !== status) {
+          st.status = status;
+          if (status === 'done')    st.doneAt = now;
+          if (status === 'pending') st.doneAt = null;
+          changed = true;
+        }
+      };
+      for (const block of blocks) {
+        wfEnsureBlockWorkflow(block);
+        const applicable = wfApplicableStages(block);
+        if (targetCol === 'perfunduar' || targetCol === 'derguar') {
+          // Mark every applicable top-level stage + paint sub-stage as done.
+          for (const stage of WF_STAGES) {
+            if (applicable[stage]) setStage(block.workflow[stage], 'done');
+          }
+          if (applicable.paint) {
+            for (const sub of WF_PAINT_SUBSTAGES) {
+              setStage(block.workflow.paint.substages[sub], 'done');
+            }
+          }
+        } else if (targetCol === 'procesim' || targetCol === 'pritje') {
+          // Reset everything back to pending — including sub-stages.
+          for (const stage of WF_STAGES) {
+            setStage(block.workflow[stage], 'pending');
+          }
+          for (const sub of WF_PAINT_SUBSTAGES) {
+            setStage(block.workflow.paint.substages[sub], 'pending');
+          }
+        }
+        // Any column move ends the running paint timers below, so release
+        // their step locks here (in the same write).
         for (const sub of WF_PAINT_SUBSTAGES) {
-          setStage(block.workflow.paint.substages[sub], 'done');
+          const s = block.workflow.paint.substages[sub];
+          if (s.openSessionId) { s.openSessionId = null; s.openSince = null; changed = true; }
         }
       }
-    } else if (targetCol === 'procesim' || targetCol === 'pritje') {
-      // Reset everything back to pending — including sub-stages.
-      for (const stage of WF_STAGES) {
-        setStage(block.workflow[stage], 'pending');
-      }
-      for (const sub of WF_PAINT_SUBSTAGES) {
-        setStage(block.workflow.paint.substages[sub], 'pending');
-      }
-    }
+      if (changed) tx.update(ref, { blocks });
+      freshBlocks = blocks;
+    });
+  } catch (e) {
+    console.error('[wf] column transition failed:', e);
+    shellToast('Ruajtja dështoi: ' + (e.message || e), 'err');
+    return { changed: false };
   }
-
   if (changed) {
-    await db.collection('porosite').doc(String(orderId))
-      .update({ blocks: order.blocks });
     // Bust the dept-view cache so the dept tabs reflect the new state on
     // their next render (cards reappear / disappear as appropriate).
     if (window._wfDept) {
       window._wfDept.loadedAt = 0;
       if (Array.isArray(window._wfDept.orders)) {
-        const cached = window._wfDept.orders.find(o => o.id === orderId);
-        if (cached) cached.blocks = order.blocks;
+        const cached = window._wfDept.orders.find(o => String(o.id) === String(orderId));
+        if (cached && freshBlocks) cached.blocks = freshBlocks;
       }
     }
   }
+  // Any column move takes the order off its current paint step(s) — finished,
+  // delivered, or reset to pending — so no paint timer may keep running on it.
+  try {
+    const n = await _ptCloseOpenSessionsForOrder(String(orderId), 'auto-kanban');
+    if (n) shellToast(`⏱ U ndalën ${n} kohëmatës lyerjeje të hapur`, 'ok');
+  } catch (e) { console.warn('[pt] auto-close on column move failed:', e); }
   return { changed };
 }
 
@@ -16049,7 +16339,7 @@ async function openKbDetail(orderId) {
 //     saw:   { status, startedAt, doneAt, doneBy, note },
 //     board: { status, ... },
 //     cnc:   { status, ..., designs: [{id, createdAt, createdBy, strokes:[…]}] },
-//     paint: { status, ..., substages: { zmerilim, pateDora1, pateDora2, lyerje } }
+//     paint: { status, ..., subVersion: 2, substages: { <6 WF_PAINT_SUBSTAGES keys> } }
 //   }
 // Status: 'pending' | 'inProgress' | 'done'
 //
@@ -16063,13 +16353,30 @@ const WF_STAGE_LABELS = {
   cnc:   { sq: 'CNC',        icon: '✕', short: 'CNC'   },
   paint: { sq: 'Lyerje',     icon: '🎨', short: 'Paint' },
 };
-const WF_PAINT_SUBSTAGES = ['zmerilim', 'pateDora1', 'pateDora2', 'lyerje'];
+// Six paint steps in the PHYSICAL order the shop performs them (each sanding
+// is followed by a coat). Sequential: a step unlocks when the previous one is
+// done. Every step is time-tracked in `paint_sessions` (see PAINT TIME
+// TRACKING below).
+const WF_PAINT_SUBSTAGES = [
+  'zmerilimShqeto', 'lyerjePaste1', 'zmerilimPaste1',
+  'lyerjePaste2',   'zmerilimPaste2', 'lyerjeBoje',
+];
 const WF_PAINT_SUBLABELS = {
-  zmerilim:  'Zmerilim shqeto',
-  pateDora1: 'Pastë dora 1',
-  pateDora2: 'Pastë dora 2',
-  lyerje:    'Lyerje',
+  zmerilimShqeto: 'Zmerilim shqeto',
+  lyerjePaste1:   'Lyerje dora parë pastë',
+  zmerilimPaste1: 'Zmerilim pastë dora 1',
+  lyerjePaste2:   'Lyerje dora dytë pastë',
+  zmerilimPaste2: 'Zmerilim pastë dora 2',
+  lyerjeBoje:     'Lyerje me bojë',
 };
+// Sanding vs coating — stored on every time entry so reports can split them.
+const WF_PAINT_SUBKIND = {
+  zmerilimShqeto: 'zmerilim', lyerjePaste1: 'lyerje', zmerilimPaste1: 'zmerilim',
+  lyerjePaste2:   'lyerje',   zmerilimPaste2: 'zmerilim', lyerjeBoje: 'lyerje',
+};
+// Legacy 4-step model (until 2026-10). Kept only so wfEnsureBlockWorkflow can
+// migrate orders that were mid-paint when the 6-step model shipped.
+const WF_PAINT_SUBSTAGES_V1 = ['zmerilim', 'pateDora1', 'pateDora2', 'lyerje'];
 
 // Current view state (single source of truth for which sub-view is visible).
 window._wfState = { view: 'board', orderId: null, blockId: null, order: null };
@@ -16098,18 +16405,42 @@ function wfEnsureBlockWorkflow(block) {
   for (const s of WF_STAGES) {
     if (!block.workflow[s]) block.workflow[s] = { status: 'pending' };
   }
-  // Paint sub-stages
-  if (!block.workflow.paint.substages) {
-    block.workflow.paint.substages = {};
-    for (const sub of WF_PAINT_SUBSTAGES) {
-      block.workflow.paint.substages[sub] = { status: 'pending' };
+  // Paint sub-stages — 6-step model (subVersion 2). Orders created under the
+  // legacy 4-step model are migrated ONCE: the old model was strictly
+  // sequential, so a later done-flag proves every earlier step. We only mark
+  // new steps the old flags prove (sanding after coat 1 is marked done only
+  // once coat 2 was done). Legacy keys stay in the object for traceability.
+  const paint = block.workflow.paint;
+  if (!paint.substages) paint.substages = {};
+  const subs = paint.substages;
+  for (const sub of WF_PAINT_SUBSTAGES) {
+    if (!subs[sub]) subs[sub] = { status: 'pending' };
+  }
+  if (paint.subVersion !== 2) {
+    const v1Done = k => !!(subs[k] && subs[k].status === 'done');
+    const v1At   = k => (subs[k] && subs[k].doneAt) || null;
+    // newKey → the legacy step whose doneAt best approximates its own.
+    const SRC = { zmerilimShqeto: 'zmerilim', lyerjePaste1: 'pateDora1', zmerilimPaste1: 'pateDora2',
+                  lyerjePaste2: 'pateDora2', zmerilimPaste2: 'lyerje', lyerjeBoje: 'lyerje' };
+    const mark = keys => keys.forEach(k => {
+      subs[k] = { status: 'done', doneAt: v1At(SRC[k]) || paint.doneAt || null, migratedFrom: 'v1' };
+    });
+    if (paint.status === 'done' || v1Done('lyerje')) {
+      mark(WF_PAINT_SUBSTAGES);
+    } else if (v1Done('pateDora2')) {
+      mark(['zmerilimShqeto', 'lyerjePaste1', 'zmerilimPaste1', 'lyerjePaste2']);
+    } else if (v1Done('pateDora1')) {
+      mark(['zmerilimShqeto', 'lyerjePaste1']);
+    } else if (v1Done('zmerilim')) {
+      mark(['zmerilimShqeto']);
     }
-  } else {
-    for (const sub of WF_PAINT_SUBSTAGES) {
-      if (!block.workflow.paint.substages[sub]) {
-        block.workflow.paint.substages[sub] = { status: 'pending' };
-      }
-    }
+    paint.subVersion = 2;
+  }
+  // All six steps done ⇒ the paint stage is done (otherwise the section would
+  // sit in the Lyerje queue with nothing left to press).
+  if (paint.status !== 'done' && WF_PAINT_SUBSTAGES.every(k => subs[k].status === 'done')) {
+    paint.status = 'done';
+    paint.doneAt = Math.max(0, ...WF_PAINT_SUBSTAGES.map(k => subs[k].doneAt || 0)) || null;
   }
   // Designs array (Phase 3)
   if (!Array.isArray(block.workflow.cnc.designs)) block.workflow.cnc.designs = [];
@@ -16403,9 +16734,29 @@ async function renderDepartments(deptId, forceReload) {
   });
   const body = document.getElementById('wf-dept-body');
   if (!body) return;
+  // The department landing is always actionable — never inherit the
+  // read-only flag of the "Pamje porosish" overview it may come back from.
+  _wfState.readOnly = false;
   body.innerHTML = `<div class="wf-dept-empty">Po ngarkohen porositë…</div>`;
   await _wfLoadActiveOrders(forceReload);
   _wfDeptUpdateCounts();
+  // Lyerje: fetch the paint timings of every listed order (and every timer
+  // still running anywhere) first, so cards show real running timers.
+  if (dept === 'paint') {
+    try {
+      await Promise.all([
+        _ptLoadForOrders(_wfGetBlocksForDept('paint').map(it => _ptKey(it.order))),
+        _ptLoadOpenAll(),
+      ]);
+    } catch (e) {
+      console.warn('[pt] sessions load failed:', e);
+      shellToast('Kohët e lyerjes nuk u ngarkuan: ' + (e.message || e), 'err');
+    }
+    // The user may have switched tab / view while we were loading.
+    if (_wfDept.currentTab !== 'paint' || _wfState.view !== 'departments') return;
+    _ptRenderPaintTab();
+    return;
+  }
   const blocks = _wfGetBlocksForDept(dept);
   if (blocks.length === 0) {
     body.innerHTML = `<div class="wf-dept-empty">Nuk ka punë për ${escHtml(WF_DEPT_LABELS[dept])} në këtë moment.</div>`;
@@ -16445,23 +16796,14 @@ function _wfDeptCardHtml(item, dept) {
     ? `<div class="wf-dept-card-next">Pas kësaj: <b>${escHtml(WF_DEPT_LABELS[nextDept])}</b></div>`
     : `<div class="wf-dept-card-next wf-dept-card-last">Procesi i fundit</div>`;
 
-  // Lyerje cards: replace the [Mbarova] button with FOUR inline pills, one
-  // per sub-stage, each independently tappable. Sequential rule still
-  // applies (you can't mark Pastë 1 done until Zmerilim is done).
+  // Lyerje cards: the six time-tracked steps. Chips show each step's status
+  // and logged time (tap → detail modal); the active-step row carries the
+  // ▶ Fillo / ⏸ Pauzë / ■ Mbaro controls with a live timer. Timing is per
+  // section sub-number (#fatura-N).
   if (dept === 'paint') {
-    const subs = (block.workflow && block.workflow.paint && block.workflow.paint.substages) || {};
-    const nextKey = WF_PAINT_SUBSTAGES.find(k => (subs[k] && subs[k].status) !== 'done');
-    const pillsHtml = WF_PAINT_SUBSTAGES.map(sk => {
-      const isDone   = subs[sk] && subs[sk].status === 'done';
-      const isNext   = sk === nextKey;
-      const isLocked = !isDone && !isNext;
-      const cls = isDone ? 'done' : isNext ? 'next' : 'locked';
-      const click = isLocked ? '' : `onclick="event.stopPropagation();wfTogglePaintSub(${order.id},${blockIdx},'${sk}')"`;
-      return `<span class="wf-dept-sub-pill ${cls}" ${click}>
-        <span class="ck">${isDone ? '✓' : ''}</span>
-        ${escHtml(WF_PAINT_SUBLABELS[sk])}
-      </span>`;
-    }).join('');
+    const snap = _ptSnapshot(order, blockIdx);
+    const m2Txt = snap.m2Total > 0 ? ` · ${snap.m2Total.toFixed(2)} m² lyerje` : '';
+    const kodTxt = snap.kodiBojes ? ` · Bojë: ${escHtml(snap.kodiBojes)}` : '';
     return `<div class="wf-dept-card" onclick="wfOpenBlockFromDept(${order.id},${blockIdx},'${dept}')">
       <span class="wf-dept-card-dot" style="background:${dot}"></span>
       <div class="wf-dept-card-meta">
@@ -16470,12 +16812,14 @@ function _wfDeptCardHtml(item, dept) {
       </div>
       <div class="wf-dept-card-main">
         <div class="wf-dept-card-mat">${escHtml(block.name || block.type || '—')}</div>
-        <div class="wf-dept-card-stats">${totCope} copë${nPanels ? ' · ' + nPanels + ' panele' : ''}</div>
-        <div class="wf-dept-sub-row">${pillsHtml}</div>
+        <div class="wf-dept-card-stats">${totCope} copë${nPanels ? ' · ' + nPanels + ' panele' : ''}${m2Txt}${kodTxt}</div>
+        ${_ptChipsHtml(order, blockIdx)}
+        ${_ptControlsHtml(order, blockIdx)}
         ${nextLine}
       </div>
-      <div class="wf-dept-card-actions" onclick="event.stopPropagation()">
+      <div class="wf-dept-card-actions" onclick="event.stopPropagation()" style="flex-direction:column;align-items:stretch;">
         <button class="btn btn-sm" onclick="wfOpenBlockFromDept(${order.id},${blockIdx},'${dept}')" style="background:#1a4a8c;color:#fff;">📄 Hap dokumentin</button>
+        <button class="btn btn-sm btn-ghost" onclick="ptOpenModal(${_ptJs(_ptKey(order))},${Number(blockIdx)})">🕒 Kohët</button>
       </div>
     </div>`;
   }
@@ -16529,31 +16873,11 @@ function _wfDeptCardHtml(item, dept) {
   </div>`;
 }
 
-// Per-pill tap on the Lyerje cards: toggles ONE sub-stage. Marks pending →
-// done outright (no confirm); marks done → pending with a confirm so an
-// accidental tap doesn't undo a coat someone already finished.
-async function wfTogglePaintSub(orderId, blockIdx, subKey) {
-  const order = (_wfDept.orders || []).find(o => o.id === orderId);
-  if (!order) return;
-  const block = order.blocks[blockIdx];
-  wfEnsureBlockWorkflow(block);
-  const cur = block.workflow.paint.substages[subKey].status;
-  let next = null;
-  if (cur === 'done') {
-    if (!confirm(`Rikthe "${WF_PAINT_SUBLABELS[subKey]}" te "Në pritje"?`)) return;
-    next = 'pending';
-  } else {
-    next = 'done';
-  }
-  const savedOrder = _wfState.order;
-  const savedBlockId = _wfState.blockId;
-  _wfState.order   = order;
-  _wfState.blockId = blockIdx;
-  await wfApplyStageChange(blockIdx, 'paint', subKey, next);
-  _wfState.order   = savedOrder;
-  _wfState.blockId = savedBlockId;
-  _wfDeptUpdateCounts();
-  renderDepartments(_wfDept.currentTab, false);
+// Legacy entry point (old 4-pill Lyerje card). Paint steps are now
+// time-tracked, so a tap opens the timing detail instead of flipping "done"
+// without any time on record.
+function wfTogglePaintSub(orderId, blockIdx, subKey) {
+  ptOpenModal(String(orderId), blockIdx, subKey);
 }
 
 // Card → open the block workspace (View 3) carrying dept context, so the
@@ -16613,11 +16937,10 @@ async function wfOpenBlockFromDept(orderId, blockIdx, deptId, siblingIdxs) {
       .onSnapshot(snap => {
         if (!snap.exists) return;
         const fresh = snap.data();
-        const freshBlocks = fresh.blocks || [];
-        if (_wfState.order && Array.isArray(_wfState.order.blocks)) {
-          _wfState.order.blocks.forEach((b, i) => {
-            if (freshBlocks[i] && freshBlocks[i].workflow) b.workflow = freshBlocks[i].workflow;
-          });
+        // Merge workflow by block.id (not array position — a section
+        // inserted elsewhere would shift every index).
+        if (_wfState.order && String(_wfState.order.id) === String(orderId)) {
+          _wfSyncWorkflowCaches(orderId, fresh.blocks || []);
         }
         if (_wfState.view === 'block') wfRenderBlockSide();
       }, err => { console.warn('[wf] snapshot error:', err); });
@@ -16632,6 +16955,13 @@ async function wfMarkDeptDone(orderId, blockIdx, deptId) {
   if (!order) return;
   const block = order.blocks[blockIdx];
   wfEnsureBlockWorkflow(block);
+  // Paint goes through the time-tracked finish (closes the running interval).
+  if (deptId === 'paint') {
+    const subs = block.workflow.paint.substages;
+    const next = WF_PAINT_SUBSTAGES.find(k => subs[k].status !== 'done');
+    if (next) await ptAction(String(orderId), blockIdx, next, 'finish');
+    return;
+  }
 
   // Set _wfState briefly so wfApplyStageChange has its expected globals.
   // We clear it immediately after — we're not actually navigating to View 3.
@@ -16640,13 +16970,7 @@ async function wfMarkDeptDone(orderId, blockIdx, deptId) {
   _wfState.order   = order;
   _wfState.blockId = blockIdx;
 
-  if (deptId === 'paint') {
-    const subs = block.workflow.paint.substages;
-    const next = WF_PAINT_SUBSTAGES.find(k => subs[k].status !== 'done');
-    if (next) await wfApplyStageChange(blockIdx, 'paint', next, 'done');
-  } else {
-    await wfApplyStageChange(blockIdx, deptId, null, 'done');
-  }
+  await wfApplyStageChange(blockIdx, deptId, null, 'done');
 
   _wfState.order   = savedOrder;
   _wfState.blockId = savedBlockId;
@@ -16674,9 +16998,10 @@ async function wfMarkDeptDoneMulti(orderId, blockIdxs, deptId) {
     wfEnsureBlockWorkflow(block);
     _wfState.blockId = idx;
     if (deptId === 'paint') {
+      // Paint goes through the time-tracked finish (closes running intervals).
       const subs = block.workflow.paint.substages;
       const next = WF_PAINT_SUBSTAGES.find(k => subs[k].status !== 'done');
-      if (next) await wfApplyStageChange(idx, 'paint', next, 'done');
+      if (next) await ptAction(String(orderId), idx, next, 'finish');
     } else {
       await wfApplyStageChange(idx, deptId, null, 'done');
     }
@@ -16727,16 +17052,11 @@ async function wfOpenOrder(orderId) {
       .onSnapshot(snap => {
         if (!snap.exists) return;
         const fresh = snap.data();
-        // Replace in-memory workflow with the freshest version from the server.
-        // We don't blow away the entire order object — just sync workflow
-        // sub-objects so any in-flight edits aren't lost. Conservative.
-        const freshBlocks = fresh.blocks || [];
-        if (_wfState.order && Array.isArray(_wfState.order.blocks)) {
-          _wfState.order.blocks.forEach((b, i) => {
-            if (freshBlocks[i] && freshBlocks[i].workflow) {
-              b.workflow = freshBlocks[i].workflow;
-            }
-          });
+        // Replace in-memory workflow with the freshest version from the server,
+        // matched by block.id (not array position). We don't blow away the
+        // entire order object — just sync workflow sub-objects.
+        if (_wfState.order && String(_wfState.order.id) === String(orderId)) {
+          _wfSyncWorkflowCaches(orderId, fresh.blocks || []);
         }
         // Only re-render if we're still on the order or block view.
         if (_wfState.view === 'order') wfRenderOrderDetail();
@@ -16775,6 +17095,14 @@ function wfRenderOrderDetail() {
     return;
   }
   body.innerHTML = blocks.map((b, idx) => wfBlockCardHtml(b, idx)).join('');
+  // Paint timings: refresh in the background, re-render once fresh data lands.
+  if (blocks.some(b => wfApplicableStages(b).paint)) {
+    const key = _ptKey(order);
+    _ptMaybeRefresh(key, () => {
+      if (_wfState.view === 'order' && _wfState.order && _ptKey(_wfState.order) === key) wfRenderOrderDetail();
+    });
+    _ptEnsureTicker();
+  }
 }
 
 function wfMoveOrderCol(orderId, col) {
@@ -16827,18 +17155,33 @@ function wfBlockCardHtml(block, idx) {
     const paintStatus = wfStageStatus(block, 'paint');
     const showSubs = paintStatus !== 'na' && paintStatus !== 'locked';
     if (showSubs) {
-      const subsHtml = WF_PAINT_SUBSTAGES.map(sub => {
-        const st = wfPaintSubStatus(block, sub);
-        const click = (ro || st === 'locked') ? '' : `onclick="wfPaintSubAction(${idx},'${sub}')"`;
-        const wf = block.workflow.paint.substages[sub] || {};
-        const time = (st === 'done' && wf.doneAt) ? new Date(wf.doneAt).toLocaleTimeString('sq-AL', { hour:'2-digit', minute:'2-digit' }) : '';
-        const extraCls = ro ? ' ro' : '';
-        return `<div class="wf-paint-sub-stage${extraCls} ${st === 'done' ? 'done' : st === 'locked' ? 'locked' : ''}" ${click}>
-          <div class="ps-label">${escHtml(WF_PAINT_SUBLABELS[sub])}</div>
-          <div class="ps-status">${st === 'done' ? '✓ ' + (time || '') : st === 'locked' ? 'I bllokuar' : 'Në pritje'}</div>
+      // Six time-tracked steps. A tap opens the timing detail (start / pause
+      // / finish / manual entries) instead of flipping "done" with no time.
+      const order = _wfState.order;
+      const okJ = _ptJs(_ptKey(order));
+      // Partners see the steps but never drive the timers (read-only).
+      const pro = ro || _ptIsReadOnly();
+      const subsHtml = WF_PAINT_SUBSTAGES.map((sub, i) => {
+        const st = _ptStepState(order, idx, sub);
+        const click = pro ? '' : `onclick="ptOpenModal(${okJ},${Number(idx)},${_ptJs(sub)})"`;
+        const extraCls = pro ? ' ro' : '';
+        const cls = st.base === 'done' ? 'done'
+                  : st.status === 'running' ? 'running'
+                  : st.status === 'paused' ? 'paused'
+                  : st.base === 'locked' ? 'locked' : '';
+        const statusTxt = st.base === 'done' ? '✓ Mbaruar'
+                        : st.status === 'running' ? '● Në punë'
+                        : st.status === 'paused' ? '❚❚ Në pauzë'
+                        : st.base === 'locked' ? 'I bllokuar' : 'Në pritje';
+        const time = (st.open || st.closedMs) ? `<div class="ps-time">⏱ ${_ptTimeHtml(st)}</div>` : '';
+        return `<div class="wf-paint-sub-stage${extraCls} ${cls}" ${click}>
+          <div class="ps-label">${i + 1}. ${escHtml(WF_PAINT_SUBLABELS[sub])}</div>
+          <div class="ps-status">${statusTxt}</div>
+          ${time}
         </div>`;
       }).join('');
-      paintSubHtml = `<div class="wf-paint-sub">${subsHtml}</div>`;
+      paintSubHtml = `<div class="wf-paint-sub">${subsHtml}</div>` +
+        (pro ? '' : `<div style="margin-top:4px;"><button class="pt-link" onclick="ptOpenModal(${okJ},${Number(idx)})">🕒 Kohët e lyerjes — detaje, korrigjime manuale</button></div>`);
     }
   }
 
@@ -16874,6 +17217,9 @@ async function wfStageAction(blockIdx, stage) {
   if (!block) return;
   const current = wfStageStatus(block, stage);
   if (current === 'na' || current === 'locked') return;
+  // Paint is done step-by-step (6 time-tracked steps) — never flip the whole
+  // stage directly, which would bypass the steps and leave timers running.
+  if (stage === 'paint') { ptOpenModal(_ptKey(order), blockIdx); return; }
   let next = null;
   if (current === 'done') {
     if (confirm(`Rikthe "${WF_STAGE_LABELS[stage].sq}" te "Në pritje"?`)) next = 'pending';
@@ -16884,69 +17230,127 @@ async function wfStageAction(blockIdx, stage) {
   await wfApplyStageChange(blockIdx, stage, null, next);
 }
 
-async function wfPaintSubAction(blockIdx, subKey) {
-  const order = _wfState.order;
-  const block = order && order.blocks && order.blocks[blockIdx];
-  if (!block) return;
-  const current = wfPaintSubStatus(block, subKey);
-  if (current === 'na' || current === 'locked') return;
-  let next = null;
-  if (current === 'done') {
-    if (confirm(`Rikthe "${WF_PAINT_SUBLABELS[subKey]}" te "Në pritje"?`)) next = 'pending';
-  } else {
-    next = 'done';
-  }
-  if (!next) return;
-  await wfApplyStageChange(blockIdx, 'paint', subKey, next);
+// Legacy entry point (View 2 paint box). Steps are time-tracked now → open
+// the timing detail rather than flipping "done" with no time on record.
+function wfPaintSubAction(blockIdx, subKey) {
+  if (!_wfState.order) return;
+  ptOpenModal(_ptKey(_wfState.order), blockIdx, subKey);
 }
 
 // Apply a status change, persist to Firestore, re-render. If `subKey` is
 // non-null we're updating a paint sub-stage, otherwise a top-level stage.
 // Side effect: when all paint sub-stages are done, the paint stage itself
 // flips to done. When every block is done, the order auto-moves to perfunduar.
+// Returns true when the change was saved (callers may ignore it).
 async function wfApplyStageChange(blockIdx, stage, subKey, nextStatus) {
   const order = _wfState.order;
-  if (!order) return;
+  if (!order) return false;
   const block = order.blocks[blockIdx];
-  wfEnsureBlockWorkflow(block);
+  if (!block) return false;
   const now = Date.now();
-  if (subKey) {
-    const sub = block.workflow.paint.substages[subKey];
-    sub.status = nextStatus;
-    if (nextStatus === 'done')    sub.doneAt = now;
-    if (nextStatus === 'pending') sub.doneAt = null;
-    // When every paint sub-stage is done, the paint stage itself flips to
-    // done. When any sub-stage gets reverted to pending, paint follows.
-    const subs = block.workflow.paint.substages;
-    if (WF_PAINT_SUBSTAGES.every(k => subs[k].status === 'done')) {
-      block.workflow.paint.status = 'done';
-      block.workflow.paint.doneAt = now;
-    } else if (block.workflow.paint.status === 'done') {
-      block.workflow.paint.status = 'pending';
-      block.workflow.paint.doneAt = null;
-    }
-  } else {
-    const st = block.workflow[stage];
-    st.status = nextStatus;
-    if (nextStatus === 'done')    st.doneAt = now;
-    if (nextStatus === 'pending') st.doneAt = null;
-  }
-  // Persist FIRST so any subsequent moveKbOrderTo → _wfApplyOrderColumnTransition
-  // reads the latest workflow from Firestore (rather than the pre-mutation copy).
+  // Apply the change to the SERVER's current copy of this one section (an
+  // in-memory order can be minutes old; writing it whole used to roll back
+  // other devices' progress and office edits).
+  let fresh;
   try {
-    await db.collection('porosite').doc(String(order.id))
-      .update({ blocks: order.blocks });
+    fresh = await _wfTxUpdateBlocks(order.id, block.id, blockIdx, fb => {
+      if (subKey) {
+        const sub = fb.workflow.paint.substages[subKey];
+        sub.status = nextStatus;
+        if (nextStatus === 'done')    sub.doneAt = now;
+        if (nextStatus === 'pending') sub.doneAt = null;
+        // When every paint sub-stage is done, the paint stage itself flips
+        // to done. When any sub-stage gets reverted to pending, paint follows.
+        const subs = fb.workflow.paint.substages;
+        if (WF_PAINT_SUBSTAGES.every(k => subs[k].status === 'done')) {
+          fb.workflow.paint.status = 'done';
+          fb.workflow.paint.doneAt = now;
+        } else if (fb.workflow.paint.status === 'done') {
+          fb.workflow.paint.status = 'pending';
+          fb.workflow.paint.doneAt = null;
+        }
+      } else {
+        const st = fb.workflow[stage];
+        st.status = nextStatus;
+        if (nextStatus === 'done')    st.doneAt = now;
+        if (nextStatus === 'pending') st.doneAt = null;
+      }
+    });
   } catch (e) {
     console.error('[wf] save failed:', e);
     shellToast('Ruajtja dështoi: ' + (e.message || e), 'err');
+    return false;
   }
-  // Auto-flip the kanban column based on what just happened:
-  //   - Marking a stage DONE on an order that's still in 'pritje' (just
-  //     placed, not started) means work has actually begun.  Bump it to
-  //     'procesim' so the kanban board reflects reality.
-  //   - When the WHOLE order is complete, flip straight to 'perfunduar'.
-  //     The column-transition handler then marks every stage done, which is
-  //     a no-op here because wfIsOrderDone already implies they all are.
+  _wfSyncWorkflowCaches(order.id, fresh);
+  // Kanban follows (whole order done → Përfunduar; first work → Procesim),
+  // judged on the fresh server state.
+  _wfKanbanFlipAfterChange({ id: order.id, blocks: fresh }, nextStatus);
+  // Re-render the current view.
+  if (_wfState.view === 'order') wfRenderOrderDetail();
+  else if (_wfState.view === 'block') wfRenderBlockSide();
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SAFE WORKFLOW WRITES — shared by every workflow writer
+// ═══════════════════════════════════════════════════════════════════
+// The order doc stores all sections in ONE `blocks` array. Writing a whole
+// in-memory copy of that array (the old pattern) silently rolled back
+// anything another device or the office saved meanwhile. Every workflow
+// write now goes through a transaction: read the CURRENT doc, change only the
+// targeted section (matched by its stable block.id), write it back.
+
+// Atomic read-modify-write of one section. `mutate(freshBlock, freshBlocks, tx)`
+// runs on the server's current copy (possibly more than once if Firestore
+// retries) and must only touch that section's workflow. Returns the fresh
+// blocks array that was written.
+async function _wfTxUpdateBlocks(orderId, blockId, blockIdxFallback, mutate) {
+  const ref = db.collection('porosite').doc(String(orderId));
+  let written = null;
+  await db.runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Porosia nuk u gjet (është fshirë?)');
+    const blocks = snap.data().blocks || [];
+    const fb = blockId != null
+      ? blocks.find(b => b && String(b.id) === String(blockId))
+      : blocks[blockIdxFallback];
+    if (!fb) throw new Error('Seksioni nuk u gjet në porosi — rifresko faqen');
+    wfEnsureBlockWorkflow(fb);
+    await mutate(fb, blocks, tx);
+    tx.update(ref, { blocks });
+    written = blocks;
+  });
+  return written;
+}
+
+// Mirror the server's workflow (matched by block.id) into every in-memory
+// copy of the order. Returns true when the section structure differs (sections
+// added / removed / reordered elsewhere) — the dept cache is then marked stale
+// so the next render reloads it.
+function _wfSyncWorkflowCaches(orderId, freshBlocks) {
+  const byId = new Map((freshBlocks || []).filter(b => b && b.id != null).map(b => [String(b.id), b]));
+  const copies = [];
+  if (_wfState.order && String(_wfState.order.id) === String(orderId)) copies.push(_wfState.order);
+  for (const o of (window._wfDept && _wfDept.orders) || []) {
+    if (String(o.id) === String(orderId) && !copies.includes(o)) copies.push(o);
+  }
+  let structural = false;
+  for (const o of copies) {
+    const ids = (o.blocks || []).map(b => String(b && b.id));
+    if (ids.length !== byId.size || ids.some(id => !byId.has(id))) structural = true;
+    for (const b of (o.blocks || [])) {
+      const fb = b && b.id != null ? byId.get(String(b.id)) : null;
+      if (fb && fb.workflow) b.workflow = JSON.parse(JSON.stringify(fb.workflow));
+    }
+  }
+  if (structural && window._wfDept) _wfDept.loadedAt = 0;
+  return structural;
+}
+
+// Kanban column follows reality after a stage change: whole order done →
+// Përfunduar; first work on a 'pritje' order → Procesim (quietly — routing
+// through moveKbOrderTo would reset every stage to pending).
+function _wfKanbanFlipAfterChange(order, nextStatus) {
   if (wfIsOrderDone(order)) {
     const kd = loadKanbanData();
     const cur = kd[order.id] && kd[order.id].col;
@@ -16956,20 +17360,1253 @@ async function wfApplyStageChange(blockIdx, stage, subKey, nextStatus) {
   } else if (nextStatus === 'done') {
     const curCol = getOrderKbCol(order.id);
     if (curCol === 'pritje') {
-      // Quietly bump to procesim — DON'T route through moveKbOrderTo because
-      // its column-transition handler resets every stage to PENDING (it
-      // assumes the user dragged the order between staging columns).  We
-      // only want the kanban column to track reality, not to undo the
-      // operator's just-completed work.
       const idStr = String(order.id);
       if (!_KANBAN_CACHE[idStr]) _KANBAN_CACHE[idStr] = { col: 'procesim', phases: {} };
       else _KANBAN_CACHE[idStr].col = 'procesim';
       persistKanbanForOrder(order.id);
     }
   }
-  // Re-render the current view.
-  if (_wfState.view === 'order') wfRenderOrderDetail();
-  else if (_wfState.view === 'block') wfRenderBlockSide();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PAINT TIME TRACKING (Lyerje) — data collection for future reports
+// ═══════════════════════════════════════════════════════════════════
+// Every WORK INTERVAL on one paint step of one order section (sub-number,
+// e.g. #115-2) is ONE document in `paint_sessions`, kept apart from the order
+// doc so an office re-save of the order can never touch shop-floor timings:
+//   { kind:'interval', orderKey, orderId, fatura, klientId, klientEmri,
+//     orderData, blockId, subNo, subLabel, materialName, materialType,
+//     materialId, formatId, thickness, kodiBojes,
+//     m2Sip, m2Ans, m2Total, pieces,               ← snapshot at logging time
+//     step, stepLabel, stepIndex (1-6), stepKind ('zmerilim'|'lyerje'),
+//     workers:[{id,name}], workerIds, workerCount,
+//     startMs, endMs (null while running), durationMs,
+//     startDay, endDay ('YYYY-MM-DD', shop-local), tzOffsetMin,
+//     source:'button'|'manual', note, createdAt/By, serverCreatedAt, deviceId,
+//     endedBy, endSource, serverEndedAt, updatedAt/By,
+//     edits:[{atMs, by, action, changes:{field:{from,to}}}],
+//     deleted, deletedAt, deletedBy }                ← soft delete, audited
+//
+// Every state change is a TRANSACTION on the order doc. The step's running
+// interval is a lock there (substages[step].openSessionId), so two tablets
+// can never run the same step twice. The step's DONE flag lives there too
+// (it drives the pipeline + kanban), with doneBy / doneSource / m2AtDone /
+// piecesAtDone / workMsAtDone and a small per-step history.
+
+window._pt = {
+  byOrder: new Map(),     // orderKey → [session docs]
+  loadedAt: new Map(),    // orderKey → ms of last successful server fetch
+  loading: new Set(),     // orderKeys being fetched in the background
+  openAll: [],            // every open interval (stray-timer banner)
+  modal: null,            // { orderKey, blockId, focusStep, form }
+  pick: null,             // worker picker { sel:Set, resolve, active }
+  busy: false,            // one action at a time per device
+};
+const _PT_STALE_MS   = 10 * 3600 * 1000;   // running > 10 h → probably forgotten
+const _PT_REFRESH_MS = 30 * 1000;          // background re-fetch for views
+const _PT_NET_MS     = 20 * 1000;          // give up on a server round-trip
+
+function _ptUser() {
+  try { return (auth && auth.currentUser && auth.currentUser.email) || ''; } catch (_) { return ''; }
+}
+function _ptKey(order) { return String(order && order.id); }
+function _ptServerTs() { return firebase.firestore.FieldValue.serverTimestamp(); }
+function _ptArrayUnion(x) { return firebase.firestore.FieldValue.arrayUnion(x); }
+function _ptSessColl() { return db.collection('paint_sessions'); }
+function _ptOrderRef(orderKey) { return db.collection('porosite').doc(String(orderKey)); }
+// Partners and the read-only order overview may look, never change.
+function _ptIsReadOnly() {
+  return _wfIsReadOnly() || (typeof isPartner === 'function' && isPartner());
+}
+// Safe JS string literal inside an inline handler attribute: JSON-quote, then
+// HTML-escape (the browser decodes entities before the JS parser runs).
+function _ptJs(v) { return escHtml(JSON.stringify(String(v == null ? '' : v))); }
+// Fail a server round-trip that hangs (offline / bad Wi-Fi) instead of
+// leaving every timer button frozen. A timed-out write may still land later;
+// the next refresh then shows it.
+function _ptNet(promise, ms) {
+  let t;
+  const timeout = new Promise((_, rej) => {
+    t = setTimeout(() => rej(new Error('Nuk ka lidhje me serverin — kontrollo internetin dhe provo përsëri')), ms || _PT_NET_MS);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
+}
+function _ptP2(n) { return String(n).padStart(2, '0'); }
+// Duration: "01:12:05" (live) or "1h 12m" / "12m" (summary).
+function _ptFmtDur(ms, live) {
+  const s = Math.floor(Math.max(0, Math.round(ms || 0)) / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (live) return `${_ptP2(h)}:${_ptP2(m)}:${_ptP2(sec)}`;
+  return h > 0 ? `${h}h ${_ptP2(m)}m` : `${m}m`;
+}
+// 24-hour "07.10.2026 14:05" (the sq-AL locale renders 12-hour with a suffix).
+function _ptFmtDT(ms) {
+  if (ms == null) return '—';
+  const d = new Date(ms);
+  return `${_ptP2(d.getDate())}.${_ptP2(d.getMonth() + 1)}.${d.getFullYear()} ${_ptP2(d.getHours())}:${_ptP2(d.getMinutes())}`;
+}
+function _ptLocalDay(ms) {
+  if (ms == null) return null;
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${_ptP2(d.getMonth() + 1)}-${_ptP2(d.getDate())}`;
+}
+function _ptToLocalInput(ms) {
+  if (ms == null) return '';
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${_ptP2(d.getMonth() + 1)}-${_ptP2(d.getDate())}T${_ptP2(d.getHours())}:${_ptP2(d.getMinutes())}`;
+}
+// <input type="datetime-local"> value → epoch ms (parsed as LOCAL time).
+function _ptFromLocalInput(str) {
+  if (!str) return null;
+  const t = new Date(str).getTime();
+  return isFinite(t) ? t : null;
+}
+// Stable per-device id (diagnoses clock skew / duplicates in reports).
+function _ptDeviceId() {
+  try {
+    let id = localStorage.getItem('inco.deviceId');
+    if (!id) {
+      id = 'dev-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+      localStorage.setItem('inco.deviceId', id);
+    }
+    return id;
+  } catch (_) { return 'dev-unknown'; }
+}
+
+// ─── Data: load / query (always from the SERVER) ──────────────────
+// An offline get() would answer from the (empty) memory cache and wipe the
+// running timers off the screen, so loads demand server data and keep the
+// previous cache when they fail.
+async function _ptLoadForOrders(orderKeys) {
+  const keys = [...new Set((orderKeys || []).map(String))].filter(k => k && k !== 'undefined');
+  for (let i = 0; i < keys.length; i += 30) {          // Firestore `in` cap
+    const chunk = keys.slice(i, i + 30);
+    const snap = await _ptNet(_ptSessColl().where('orderKey', 'in', chunk).get({ source: 'server' }));
+    const grouped = new Map(chunk.map(k => [k, []]));
+    snap.docs.forEach(d => {
+      const s = Object.assign({ id: d.id }, d.data());
+      if (!grouped.has(s.orderKey)) grouped.set(s.orderKey, []);
+      grouped.get(s.orderKey).push(s);
+    });
+    const now = Date.now();
+    grouped.forEach((arr, k) => { _pt.byOrder.set(k, arr); _pt.loadedAt.set(k, now); });
+  }
+}
+// Every interval still running anywhere (stray-timer banner on the Lyerje tab).
+async function _ptLoadOpenAll() {
+  const snap = await _ptNet(_ptSessColl().where('endMs', '==', null).get({ source: 'server' }));
+  _pt.openAll = snap.docs.map(d => Object.assign({ id: d.id }, d.data())).filter(s => !s.deleted);
+}
+// Fresh sessions AND fresh step flags for one order, right before acting.
+async function _ptFreshen(orderKey) {
+  const res = await Promise.all([
+    _ptLoadForOrders([orderKey]),
+    _ptNet(_ptOrderRef(orderKey).get({ source: 'server' })),
+  ]);
+  const osnap = res[1];
+  if (osnap && osnap.exists) _wfSyncWorkflowCaches(orderKey, osnap.data().blocks || []);
+}
+// Background refresh for View 2 / View 3: fetch when missing or older than
+// _PT_REFRESH_MS, then call `rerender` once the fresh data is in.
+function _ptMaybeRefresh(orderKey, rerender) {
+  const key = String(orderKey);
+  const at = _pt.loadedAt.get(key) || 0;
+  if (Date.now() - at < _PT_REFRESH_MS || _pt.loading.has(key)) return;
+  _pt.loading.add(key);
+  _ptLoadForOrders([key])
+    .then(() => { if (typeof rerender === 'function') rerender(); })
+    .catch(e => console.warn('[pt] sessions load failed:', e))
+    .finally(() => _pt.loading.delete(key));
+}
+function _ptSessions(orderKey, blockId, step) {
+  return (_pt.byOrder.get(String(orderKey)) || [])
+    .filter(s => !s.deleted && String(s.blockId) === String(blockId) && (!step || s.step === step))
+    .sort((a, b) => (a.startMs || 0) - (b.startMs || 0));
+}
+// Replace-or-add by id (a background reload may already hold the doc).
+function _ptUpsertLocal(sess) {
+  const key = String(sess.orderKey);
+  const arr = _pt.byOrder.get(key) || [];
+  const i = arr.findIndex(s => s.id === sess.id);
+  if (i >= 0) arr[i] = sess; else arr.push(sess);
+  _pt.byOrder.set(key, arr);
+}
+// The in-memory order to RENDER from. Actions never trust it for writes —
+// they re-read inside a transaction. View 2/3's order only while that view is
+// open (it then gets live onSnapshot updates); otherwise the dept cache.
+function _ptResolveOrder(orderKey) {
+  const k = String(orderKey);
+  const wfo = _wfState.order && String(_wfState.order.id) === k ? _wfState.order : null;
+  if (wfo && (_wfState.view === 'order' || _wfState.view === 'block')) return wfo;
+  return (_wfDept.orders || []).find(o => String(o.id) === k) || wfo;
+}
+function _ptBlockIdx(order, blockId) {
+  return ((order && order.blocks) || []).findIndex(b => b && String(b.id) === String(blockId));
+}
+// State of one step for one section:
+//   base   — wfPaintSubStatus: 'na' | 'locked' | 'pending' | 'done'
+//   status — base refined for the active step: 'next' | 'running' | 'paused'
+function _ptStepState(order, blockIdx, step) {
+  const block = order.blocks[blockIdx];
+  wfEnsureBlockWorkflow(block);
+  const sessions = _ptSessions(_ptKey(order), block.id, step);
+  const open = sessions.find(s => s.endMs == null) || null;
+  const closedMs = sessions.reduce((t, s) =>
+    t + (s.endMs != null ? Math.max(0, s.endMs - s.startMs) : 0), 0);
+  const base = wfPaintSubStatus(block, step);
+  let status = base;
+  if (base === 'pending') status = open ? 'running' : (sessions.length ? 'paused' : 'next');
+  return { step, base, status, sessions, open, closedMs };
+}
+// The first not-done step of a section (null when all six are done).
+function _ptActiveStep(order, blockIdx) {
+  const block = order.blocks[blockIdx];
+  wfEnsureBlockWorkflow(block);
+  const k = WF_PAINT_SUBSTAGES.find(s => block.workflow.paint.substages[s].status !== 'done');
+  return k ? _ptStepState(order, blockIdx, k) : null;
+}
+// Section facts copied onto every time entry, so reports never depend on the
+// order still existing / still having the same rows later.
+function _ptSnapshot(order, blockIdx) {
+  const b = order.blocks[blockIdx];
+  // calcBlock is pure but mutates its argument: run it on a shallow copy with
+  // deep-copied rows so the order itself is never touched.
+  const c = Object.assign({}, b, { rows: JSON.parse(JSON.stringify(b.rows || [])) });
+  try { calcBlock(c); } catch (_) { /* missing cfg → zeros */ }
+  const r3 = v => Math.round((Number(v) || 0) * 1000) / 1000;
+  const pieces = (b.rows || [])
+    .filter(r => r && !r.fromDopjim && r.lyerje !== false)
+    .reduce((s, r) => s + (parseInt(r.s) || 0), 0);
+  const fatura = String(order.fatura || order.id);
+  let klientEmri = order.klient_emri || '';
+  try {
+    const k = order.klient_id && loadKlientet().find(x => x.id === order.klient_id);
+    if (k && k.emri) klientEmri = k.emri;
+  } catch (_) {}
+  return {
+    orderKey: _ptKey(order), orderId: order.id, fatura,
+    klientId: order.klient_id || null, klientEmri, orderData: order.data || '',
+    blockId: b.id, subNo: blockIdx + 1, subLabel: `#${fatura}-${blockIdx + 1}`,
+    materialName: b.name || '', materialType: b.type || '',
+    materialId: b.materialId || null, formatId: b.formatId || null,
+    thickness: (b.cfg && b.cfg.spes) || null, kodiBojes: b.kodiBojes || '',
+    m2Sip: r3(c.totM2sip), m2Ans: r3(c.totM2ans), m2Total: r3(c.totPaint), pieces,
+  };
+}
+
+// ─── Data: transactional writes ───────────────────────────────────
+function _ptBuildSessionDoc(order, blockIdx, step, f) {
+  const now = Date.now();
+  const startMs = f.startMs != null ? f.startMs : now;
+  const endMs = f.endMs != null ? Math.max(f.endMs, startMs) : null;
+  const workers = (f.workers || []).map(w => ({ id: String(w.id), name: String(w.name || '') }));
+  const doc = Object.assign({
+    v: 2, kind: 'interval',
+    step, stepLabel: WF_PAINT_SUBLABELS[step],
+    stepIndex: WF_PAINT_SUBSTAGES.indexOf(step) + 1,
+    stepKind: WF_PAINT_SUBKIND[step],
+    workers, workerIds: workers.map(w => w.id), workerCount: workers.length,
+    startMs, endMs, durationMs: endMs != null ? endMs - startMs : null,
+    startDay: _ptLocalDay(startMs), endDay: _ptLocalDay(endMs),
+    tzOffsetMin: -new Date(startMs).getTimezoneOffset(),
+    source: f.source || 'button', note: f.note || '',
+    createdAt: now, createdBy: _ptUser(), serverCreatedAt: _ptServerTs(),
+    deviceId: _ptDeviceId(), edits: [], deleted: false,
+  }, _ptSnapshot(order, blockIdx));
+  if (endMs != null) {
+    doc.endedBy = _ptUser();
+    doc.endSource = doc.source;
+    doc.serverEndedAt = _ptServerTs();
+  }
+  return doc;
+}
+function _ptRecomputePaintStatus(block, now) {
+  const p = block.workflow.paint, subs = p.substages;
+  if (WF_PAINT_SUBSTAGES.every(k => subs[k].status === 'done')) {
+    if (p.status !== 'done') { p.status = 'done'; p.doneAt = now; }
+  } else if (p.status === 'done') {
+    p.status = 'pending'; p.doneAt = null;
+  }
+}
+// Read the order inside a transaction and locate the section by block.id.
+async function _ptTxReadSection(tx, orderKey, blockId) {
+  const ref = _ptOrderRef(orderKey);
+  const snap = await tx.get(ref);
+  if (!snap.exists) throw new Error('Porosia nuk ekziston më');
+  const data = snap.data();
+  const blocks = data.blocks || [];
+  const bi = blocks.findIndex(b => b && String(b.id) === String(blockId));
+  if (bi < 0) throw new Error('Seksioni nuk u gjet në porosi — rifresko faqen');
+  const b = blocks[bi];
+  wfEnsureBlockWorkflow(b);
+  const order = Object.assign({}, data, { id: data.id != null ? data.id : orderKey, blocks });
+  return { ref, order, blocks, bi, b };
+}
+// The interval holding the step's lock, if it is genuinely still open. A lock
+// pointing at a closed / deleted / missing interval is stale and ignored.
+async function _ptTxLockOpen(tx, sub, exceptId) {
+  if (!sub.openSessionId || sub.openSessionId === exceptId) return null;
+  const s = await tx.get(_ptSessColl().doc(sub.openSessionId));
+  const d = s.exists ? s.data() : null;
+  return (d && !d.deleted && d.endMs == null) ? d : null;
+}
+
+// ▶ Fillo / ▶ Vazhdo (and a manual interval left "in progress"): creates the
+// interval and takes the step lock in ONE transaction.
+async function _ptTxStart(orderKey, blockId, step, f) {
+  const sRef = _ptSessColl().doc();
+  const label = WF_PAINT_SUBLABELS[step];
+  let out = null;
+  await _ptNet(db.runTransaction(async tx => {
+    const S = await _ptTxReadSection(tx, orderKey, blockId);
+    const st = wfPaintSubStatus(S.b, step);
+    if (st === 'locked') throw new Error('Mbaro së pari hapin e mëparshëm');
+    if (st !== 'pending') throw new Error(`"${label}" është mbaruar (ndoshta nga një pajisje tjetër)`);
+    const sub = S.b.workflow.paint.substages[step];
+    const held = await _ptTxLockOpen(tx, sub, null);
+    if (held) throw new Error(`"${label}" është tashmë në punë${held.createdBy ? ' — ' + held.createdBy : ''}`);
+    const doc = _ptBuildSessionDoc(S.order, S.bi, step, Object.assign({}, f, { endMs: null }));
+    sub.openSessionId = sRef.id;
+    sub.openSince = doc.startMs;
+    tx.update(S.ref, { blocks: S.blocks });
+    tx.set(sRef, doc);
+    out = { blocks: S.blocks, doc: Object.assign({ id: sRef.id }, doc, { serverCreatedAt: null }) };
+  }));
+  _wfSyncWorkflowCaches(orderKey, out.blocks);
+  _ptUpsertLocal(out.doc);
+  return out.doc;
+}
+
+// ⏸ Pauzë / ■ Mbaro: closes EVERY open interval of the step (belt and braces
+// against any duplicate) and releases the lock; `finish` also marks it done.
+async function _ptTxClose(orderKey, blockId, step, how, finish) {
+  const label = WF_PAINT_SUBLABELS[step];
+  const cached = _ptSessions(orderKey, blockId, step);
+  const knownOpen = cached.filter(s => s.endMs == null).map(s => s.id);
+  const closedBefore = cached.reduce((t, s) => t + (s.endMs != null ? Math.max(0, s.endMs - s.startMs) : 0), 0);
+  let out = null;
+  await _ptNet(db.runTransaction(async tx => {
+    const S = await _ptTxReadSection(tx, orderKey, blockId);
+    const sub = S.b.workflow.paint.substages[step];
+    const ids = [...new Set(knownOpen.concat(sub.openSessionId ? [sub.openSessionId] : []))];
+    const refs = ids.map(id => _ptSessColl().doc(id));
+    const snaps = [];
+    for (const r of refs) snaps.push(await tx.get(r));          // all reads before writes
+    if (finish) {
+      const st = wfPaintSubStatus(S.b, step);
+      if (st === 'locked') throw new Error('Hapi i mëparshëm nuk është mbaruar');
+      if (st === 'done') throw new Error(`"${label}" është mbaruar tashmë (nga një pajisje tjetër)`);
+    }
+    const now = Date.now();
+    const closed = [];
+    snaps.forEach((s, i) => {
+      const d = s.exists ? s.data() : null;
+      if (!d || d.deleted || d.endMs != null) return;
+      const endMs = Math.max(now, d.startMs || now);            // never before its start (clock skew)
+      const upd = { endMs, durationMs: endMs - d.startMs, endDay: _ptLocalDay(endMs),
+                    endedBy: _ptUser(), endSource: how, serverEndedAt: _ptServerTs() };
+      tx.update(refs[i], upd);
+      closed.push(Object.assign({ id: refs[i].id }, d, upd, { serverEndedAt: null }));
+    });
+    sub.openSessionId = null;
+    sub.openSince = null;
+    if (finish) {
+      const snapM = _ptSnapshot(S.order, S.bi);
+      const workMs = closedBefore + closed.reduce((t, c) => t + c.durationMs, 0);
+      Object.assign(sub, {
+        status: 'done', doneAt: now, doneBy: _ptUser(),
+        doneSource: workMs > 0 ? 'timer' : 'no-time',
+        m2AtDone: snapM.m2Total, piecesAtDone: snapM.pieces, workMsAtDone: workMs,
+      });
+      sub.history = (Array.isArray(sub.history) ? sub.history : []).concat([{ action: 'done', atMs: now, by: _ptUser() }]);
+      _ptRecomputePaintStatus(S.b, now);
+    }
+    tx.update(S.ref, { blocks: S.blocks });
+    out = { blocks: S.blocks, closed };
+  }));
+  _wfSyncWorkflowCaches(orderKey, out.blocks);
+  out.closed.forEach(_ptUpsertLocal);
+  return out;
+}
+
+// ↩ Rikthe: only the LATEST finished step, and only while the next one is not
+// running — never leaves a done step behind a pending one.
+async function _ptTxRevert(orderKey, blockId, step) {
+  const label = WF_PAINT_SUBLABELS[step];
+  let out = null;
+  await _ptNet(db.runTransaction(async tx => {
+    const S = await _ptTxReadSection(tx, orderKey, blockId);
+    const subs = S.b.workflow.paint.substages;
+    const sub = subs[step];
+    if (sub.status !== 'done') throw new Error(`"${label}" nuk është i mbaruar`);
+    const nextKey = WF_PAINT_SUBSTAGES[WF_PAINT_SUBSTAGES.indexOf(step) + 1];
+    if (nextKey) {
+      if (subs[nextKey].status === 'done') throw new Error('Mund të rikthehet vetëm hapi i fundit i mbaruar');
+      if (await _ptTxLockOpen(tx, subs[nextKey], null)) {
+        throw new Error(`"${WF_PAINT_SUBLABELS[nextKey]}" është në punë — ndaloje së pari`);
+      }
+    }
+    const now = Date.now();
+    sub.status = 'pending';
+    sub.doneAt = null;
+    sub.revertedAt = now;
+    sub.revertedBy = _ptUser();
+    sub.history = (Array.isArray(sub.history) ? sub.history : []).concat([{ action: 'revert', atMs: now, by: _ptUser() }]);
+    _ptRecomputePaintStatus(S.b, now);
+    tx.update(S.ref, { blocks: S.blocks });
+    out = { blocks: S.blocks };
+  }));
+  _wfSyncWorkflowCaches(orderKey, out.blocks);
+  return out;
+}
+
+// Manual interval with a known end: no lock needed, but the step must be
+// reachable (not locked) on the server's current state.
+async function _ptTxAddClosed(orderKey, blockId, step, f) {
+  const sRef = _ptSessColl().doc();
+  let out = null;
+  await _ptNet(db.runTransaction(async tx => {
+    const S = await _ptTxReadSection(tx, orderKey, blockId);
+    if (wfPaintSubStatus(S.b, step) === 'locked') {
+      throw new Error('Ky hap është i bllokuar — mbaro së pari hapin e mëparshëm');
+    }
+    const doc = _ptBuildSessionDoc(S.order, S.bi, step, f);
+    tx.set(sRef, doc);
+    out = Object.assign({ id: sRef.id }, doc, { serverCreatedAt: null, serverEndedAt: null });
+  }));
+  _ptUpsertLocal(out);
+  return out;
+}
+
+// Manual correction of one interval, diffed against the SERVER copy read in
+// the transaction: only fields the user actually changed are written, so a
+// stale form can never reopen an interval another device closed. Reopening
+// (end cleared) takes the step lock; closing releases it.
+async function _ptTxEditSession(orderKey, blockId, step, sessionId, changes) {
+  const sRef = _ptSessColl().doc(sessionId);
+  let out = null;
+  await _ptNet(db.runTransaction(async tx => {
+    const ss = await tx.get(sRef);
+    const server = ss.exists ? ss.data() : null;
+    if (!server || server.deleted) throw new Error('Intervali nuk ekziston më (u fshi nga një pajisje tjetër?)');
+    let S = null;
+    try { S = await _ptTxReadSection(tx, orderKey, blockId); } catch (_) { S = null; }   // order/section may be gone
+    const sub = S ? S.b.workflow.paint.substages[step] : null;
+    const merged = {
+      startMs: 'startMs' in changes ? changes.startMs : server.startMs,
+      endMs:   'endMs'   in changes ? changes.endMs   : server.endMs,
+    };
+    const wasOpen = server.endMs == null, nowOpen = merged.endMs == null;
+    if (nowOpen && !wasOpen) {
+      if (!S || wfPaintSubStatus(S.b, step) !== 'pending') {
+        throw new Error('Vetëm hapi aktiv mund të ketë një interval "në punë" — vendos mbarimin');
+      }
+      if (await _ptTxLockOpen(tx, sub, sessionId)) throw new Error('Një interval tjetër i këtij hapi është në punë');
+    }
+    const changed = {};
+    for (const k of Object.keys(changes)) {
+      const from = server[k] === undefined ? null : server[k];
+      if (JSON.stringify(from) !== JSON.stringify(changes[k])) changed[k] = { from, to: changes[k] };
+    }
+    if (!Object.keys(changed).length) { out = { noop: true }; return; }
+    const now = Date.now();
+    const entry = { atMs: now, by: _ptUser(), action: 'manual-edit', changes: changed };
+    const upd = {};
+    for (const k of Object.keys(changed)) upd[k] = changes[k];
+    upd.durationMs = merged.endMs != null ? Math.max(0, merged.endMs - merged.startMs) : null;
+    if ('startMs' in changed) {
+      upd.startDay = _ptLocalDay(merged.startMs);
+      upd.tzOffsetMin = -new Date(merged.startMs).getTimezoneOffset();
+    }
+    if ('endMs' in changed) upd.endDay = _ptLocalDay(merged.endMs);
+    if ('workers' in changed) {
+      upd.workerIds = (changes.workers || []).map(w => w.id);
+      upd.workerCount = (changes.workers || []).length;
+    }
+    if (wasOpen && !nowOpen) { upd.endedBy = _ptUser(); upd.endSource = 'manual'; upd.serverEndedAt = _ptServerTs(); }
+    if (!wasOpen && nowOpen) { upd.endedBy = null; upd.endSource = null; upd.serverEndedAt = null; }
+    upd.updatedAt = now;
+    upd.updatedBy = _ptUser();
+    tx.update(sRef, Object.assign({}, upd, { edits: _ptArrayUnion(entry) }));
+    let touchedOrder = false;
+    if (S && wasOpen && !nowOpen && sub.openSessionId === sessionId) {
+      sub.openSessionId = null; sub.openSince = null; touchedOrder = true;
+    } else if (S && !wasOpen && nowOpen) {
+      sub.openSessionId = sessionId; sub.openSince = merged.startMs; touchedOrder = true;
+    }
+    if (touchedOrder) tx.update(S.ref, { blocks: S.blocks });
+    out = {
+      doc: Object.assign({ id: sessionId }, server, upd, { edits: (server.edits || []).concat([entry]), serverEndedAt: null }),
+      blocks: touchedOrder ? S.blocks : null,
+    };
+  }));
+  if (out.noop) return false;
+  if (out.blocks) _wfSyncWorkflowCaches(orderKey, out.blocks);
+  _ptUpsertLocal(out.doc);
+  return true;
+}
+
+// 🗑: soft delete (kept for history, audited); releases the lock if it held it.
+async function _ptTxDeleteSession(orderKey, blockId, step, sessionId) {
+  const sRef = _ptSessColl().doc(sessionId);
+  let out = null;
+  await _ptNet(db.runTransaction(async tx => {
+    const ss = await tx.get(sRef);
+    const server = ss.exists ? ss.data() : null;
+    if (!server || server.deleted) throw new Error('Intervali nuk ekziston më');
+    let S = null;
+    try { S = await _ptTxReadSection(tx, orderKey, blockId); } catch (_) { S = null; }
+    const sub = S ? S.b.workflow.paint.substages[step] : null;
+    const now = Date.now();
+    const entry = { atMs: now, by: _ptUser(), action: 'delete', changes: { deleted: { from: false, to: true } } };
+    const upd = { deleted: true, deletedAt: now, deletedBy: _ptUser(), updatedAt: now, updatedBy: _ptUser() };
+    tx.update(sRef, Object.assign({}, upd, { edits: _ptArrayUnion(entry) }));
+    const releases = !!(sub && sub.openSessionId === sessionId);
+    if (releases) { sub.openSessionId = null; sub.openSince = null; tx.update(S.ref, { blocks: S.blocks }); }
+    out = {
+      doc: Object.assign({ id: sessionId }, server, upd, { edits: (server.edits || []).concat([entry]) }),
+      blocks: releases ? S.blocks : null,
+    };
+  }));
+  if (out.blocks) _wfSyncWorkflowCaches(orderKey, out.blocks);
+  _ptUpsertLocal(out.doc);
+}
+
+// ■ Ndalo on a stray timer (any session id); releases its lock if held.
+async function _ptTxStopSession(sessionId, how) {
+  const sRef = _ptSessColl().doc(sessionId);
+  let out = null;
+  await _ptNet(db.runTransaction(async tx => {
+    const ss = await tx.get(sRef);
+    const d = ss.exists ? ss.data() : null;
+    if (!d || d.deleted || d.endMs != null) { out = { noop: true }; return; }
+    let S = null;
+    try { S = await _ptTxReadSection(tx, d.orderKey, d.blockId); } catch (_) { S = null; }
+    const sub = S && S.b.workflow.paint.substages[d.step];
+    const now = Date.now();
+    const endMs = Math.max(now, d.startMs || now);
+    const upd = { endMs, durationMs: endMs - d.startMs, endDay: _ptLocalDay(endMs),
+                  endedBy: _ptUser(), endSource: how, serverEndedAt: _ptServerTs() };
+    tx.update(sRef, upd);
+    const releases = !!(sub && sub.openSessionId === sessionId);
+    if (releases) { sub.openSessionId = null; sub.openSince = null; tx.update(S.ref, { blocks: S.blocks }); }
+    out = { doc: Object.assign({ id: sessionId }, d, upd, { serverEndedAt: null }),
+            blocks: releases ? S.blocks : null, orderKey: d.orderKey };
+  }));
+  if (out.noop) return;
+  if (out.blocks) _wfSyncWorkflowCaches(out.orderKey, out.blocks);
+  _ptUpsertLocal(out.doc);
+}
+
+// Bulk close (kanban move / order delete) — the caller clears the locks.
+async function _ptCloseSession(sess, endMs, how) {
+  const end = Math.max(endMs, sess.startMs || endMs);
+  const upd = { endMs: end, durationMs: end - sess.startMs, endDay: _ptLocalDay(end),
+                endedBy: _ptUser(), endSource: how, serverEndedAt: _ptServerTs() };
+  await _ptNet(_ptSessColl().doc(sess.id).update(upd));
+  Object.assign(sess, upd, { serverEndedAt: null });
+}
+// An order left the shop floor (kanban move / delete): no paint timer may
+// keep running on it. Closes every open interval at this moment.
+async function _ptCloseOpenSessionsForOrder(orderKey, how) {
+  await _ptLoadForOrders([orderKey]);
+  const open = (_pt.byOrder.get(String(orderKey)) || []).filter(s => !s.deleted && s.endMs == null);
+  for (const s of open) await _ptCloseSession(s, Date.now(), how);
+  return open.length;
+}
+
+// ─── Actions: ▶ Fillo / ⏸ Pauzë / ▶ Vazhdo / ■ Mbaro / ↩ Rikthe ──
+// action: 'start' (also resume) | 'pause' | 'finish' | 'revert'
+// opts.back: after a successful finish, leave the block workspace (View 3).
+async function ptAction(orderKey, blockIdx, step, action, opts) {
+  if (_ptIsReadOnly()) { shellToast('Pamje vetëm-leximi — kohët nuk mund të ndryshohen këtu', 'err'); return; }
+  if (_pt.busy) { shellToast('Prit — një veprim tjetër po ruhet…', 'err'); return; }
+  const order = _ptResolveOrder(orderKey);
+  const block = order && order.blocks && order.blocks[blockIdx];
+  if (!block) { shellToast('Porosia nuk u gjet', 'err'); return; }
+  const blockId = block.id;
+  const label = WF_PAINT_SUBLABELS[step] || step;
+  let finished = false;
+  _pt.busy = true;
+  try {
+    // Decide on fresh server state: another device may have acted meanwhile.
+    await _ptFreshen(orderKey);
+    const bi = _ptBlockIdx(order, blockId);
+    if (bi < 0) throw new Error('Seksioni nuk u gjet — rifresko faqen');
+    const st = _ptStepState(order, bi, step);
+
+    if (action === 'start') {
+      if (st.base === 'locked') throw new Error('Mbaro së pari hapin e mëparshëm');
+      if (st.base !== 'pending') throw new Error(`"${label}" është mbaruar`);
+      if (st.open) throw new Error(`"${label}" është tashmë në punë`);
+      const resume = st.sessions.length > 0;
+      const workers = await _ptPickWorkers(_ptLastWorkerIds(st),
+        `${resume ? '▶ Vazhdo' : '▶ Fillo'} — ${label}`, resume ? '▶ Vazhdo' : '▶ Fillo');
+      if (!workers) return;
+      // The lock check inside the transaction is what makes this safe if
+      // another tablet started the same step while the picker was open.
+      await _ptTxStart(orderKey, blockId, step, { workers, source: 'button' });
+      _ptRememberWorkers(workers);
+
+    } else if (action === 'pause') {
+      if (!st.open) throw new Error(`"${label}" nuk është në punë`);
+      await _ptTxClose(orderKey, blockId, step, 'pause', false);
+
+    } else if (action === 'finish') {
+      if (st.base !== 'pending') throw new Error(`"${label}" nuk mund të mbarohet tani`);
+      if (!st.open && st.sessions.length === 0 &&
+          !confirm(`"${label}" nuk ka kohë të regjistruar.\n\nTa shënoj si të mbaruar pa kohë?\n(Kohën mund ta shtosh më vonë te 🕒 Kohët.)`)) return;
+      const out = await _ptTxClose(orderKey, blockId, step, 'finish', true);
+      _wfKanbanFlipAfterChange({ id: order.id, blocks: out.blocks }, 'done');
+      finished = true;
+      shellToast(`✓ ${label} — mbaruar`, 'ok');
+
+    } else if (action === 'revert') {
+      if (st.base !== 'done') throw new Error(`"${label}" nuk është i mbaruar`);
+      const nextKey = WF_PAINT_SUBSTAGES[WF_PAINT_SUBSTAGES.indexOf(step) + 1];
+      if (nextKey && _ptSessions(orderKey, blockId, nextKey).length) {
+        throw new Error(`"${WF_PAINT_SUBLABELS[nextKey]}" ka kohë të regjistruar — fshi intervalet e tij së pari`);
+      }
+      if (!confirm(`Rikthe "${label}" te "Në pritje"?`)) return;
+      await _ptTxRevert(orderKey, blockId, step);
+    }
+  } catch (e) {
+    console.error('[pt] action failed:', e);
+    shellToast(e && e.message ? e.message : 'Gabim: ' + e, 'err');
+  } finally {
+    _pt.busy = false;
+    _ptRefreshViews();
+    _ptRefreshOrphans();
+  }
+  if (finished && opts && opts.back && _wfState.view === 'block') wfBackFromBlock();
+}
+
+// ─── Live ticking (running timers) ────────────────────────────────
+let _ptTicker = null;
+function _ptEnsureTicker() {
+  if (_ptTicker) return;
+  _ptTicker = setInterval(() => {
+    const els = document.querySelectorAll('[data-pt-live]');
+    if (!els.length) { clearInterval(_ptTicker); _ptTicker = null; return; }
+    const now = Date.now();
+    els.forEach(el => {
+      const start = Number(el.getAttribute('data-pt-live'));
+      const base  = Number(el.getAttribute('data-pt-base') || 0);
+      el.textContent = _ptFmtDur(base + Math.max(0, now - start), true);
+    });
+  }, 1000);
+}
+// Total work time of a step: live HH:MM:SS while running, else "1h 12m".
+function _ptTimeHtml(st) {
+  if (st.open) {
+    const ms = st.closedMs + Math.max(0, Date.now() - st.open.startMs);
+    return `<span data-pt-live="${Number(st.open.startMs)}" data-pt-base="${Number(st.closedMs)}">${_ptFmtDur(ms, true)}</span>`;
+  }
+  return `<span>${_ptFmtDur(st.closedMs)}</span>`;
+}
+
+// Start / pause / finish buttons + live timer for a section's ACTIVE step.
+// Shared by the Lyerje dept card and the View 3 action bar.
+function _ptControlsHtml(order, blockIdx, opts) {
+  const st = _ptActiveStep(order, blockIdx);
+  if (!st) return `<div class="pt-active"><span class="pt-active-label">✓ Të 6 hapat e lyerjes janë mbaruar</span></div>`;
+  const ro = _ptIsReadOnly();
+  const backArg = (opts && opts.back) ? ',{back:true}' : '';
+  const btn = (act, txt, cls) =>
+    `<button class="btn btn-sm pt-btn ${cls}" onclick="event.stopPropagation();ptAction(${_ptJs(_ptKey(order))},${Number(blockIdx)},${_ptJs(st.step)},${_ptJs(act)}${backArg})">${txt}</button>`;
+  let btns = '';
+  if (!ro) {
+    if (st.status === 'running')     btns = btn('pause', '⏸ Pauzë', 'pause') + btn('finish', '■ Mbaro', 'finish');
+    else if (st.status === 'paused') btns = btn('start', '▶ Vazhdo', 'start') + btn('finish', '■ Mbaro', 'finish');
+    else                             btns = btn('start', '▶ Fillo', 'start') + btn('finish', '■ Mbaro', 'finish');
+  }
+  const workers = st.open ? (st.open.workers || []).map(w => w.name).filter(Boolean).join(', ') : '';
+  const stale = st.open && (Date.now() - st.open.startMs > _PT_STALE_MS);
+  const stepNo = WF_PAINT_SUBSTAGES.indexOf(st.step) + 1;
+  const stateTxt = st.status === 'paused' ? ' (në pauzë)' : '';
+  return `<div class="pt-active ${st.status}" onclick="event.stopPropagation()">
+    <span class="pt-active-label">${stepNo}/6 · ${escHtml(WF_PAINT_SUBLABELS[st.step])}${stateTxt}</span>
+    ${(st.open || st.closedMs) ? `<span class="pt-active-time">⏱ ${_ptTimeHtml(st)}</span>` : ''}
+    ${workers ? `<span class="pt-active-workers">👷 ${escHtml(workers)}</span>` : ''}
+    ${stale ? `<span class="pt-stale" title="Koha po rrjedh mbi 10 orë — mos është harruar ndalimi? Korrigjoje te 🕒 Kohët.">⚠ mbi 10 orë</span>` : ''}
+    <span class="pt-active-btns">${btns}</span>
+  </div>`;
+}
+
+// The six step chips (status + time). Tapping one opens the detail modal.
+function _ptChipsHtml(order, blockIdx) {
+  return `<div class="pt-chips">${WF_PAINT_SUBSTAGES.map((sk, i) => {
+    const st = _ptStepState(order, blockIdx, sk);
+    const cls = st.base === 'done' ? 'done'
+              : st.status === 'running' ? 'running'
+              : st.status === 'paused' ? 'paused'
+              : st.base === 'pending' ? 'next' : 'locked';
+    const ck = st.base === 'done' ? '✓' : st.status === 'running' ? '●' : st.status === 'paused' ? '❚❚' : (i + 1);
+    const t = (st.open || st.closedMs) ? ` <span class="pt-chip-t">${_ptTimeHtml(st)}</span>` : '';
+    return `<span class="pt-chip ${cls}" title="Shiko / ndrysho kohët"
+      onclick="event.stopPropagation();ptOpenModal(${_ptJs(_ptKey(order))},${Number(blockIdx)},${_ptJs(sk)})"><span class="ck">${ck}</span>${escHtml(WF_PAINT_SUBLABELS[sk])}${t}</span>`;
+  }).join('')}</div>`;
+}
+
+// ─── Lyerje tab rendering + stray-timer banner ────────────────────
+// Any interval still running that no listed card shows as its active timer
+// (order moved off the floor by an old app version, step reverted on another
+// device, duplicate from a race…) is surfaced here with a stop button, so a
+// forgotten timer can never silently run for days.
+function _ptOrphansHtml(items) {
+  const shown = new Set();
+  for (const it of items) {
+    const st = _ptActiveStep(it.order, it.blockIdx);
+    if (st && st.open) shown.add(st.open.id);
+  }
+  const orphans = (_pt.openAll || []).filter(s => !shown.has(s.id));
+  if (!orphans.length) return '';
+  const ro = _ptIsReadOnly();
+  const rows = orphans.map(s => {
+    const names = (s.workers || []).map(w => w.name).filter(Boolean).join(', ');
+    const stale = Date.now() - s.startMs > _PT_STALE_MS;
+    return `<div class="pt-orphan-row">
+      <span class="pt-orphan-what"><b>${escHtml(s.subLabel || '')}</b> · ${escHtml(s.klientEmri || '')} · ${escHtml(s.stepLabel || s.step || '')}${names ? ' · 👷 ' + escHtml(names) : ''}</span>
+      <span class="pt-active-time" style="${stale ? 'color:#b91c1c;' : ''}">⏱ <span data-pt-live="${Number(s.startMs)}" data-pt-base="0">${_ptFmtDur(Date.now() - s.startMs, true)}</span></span>
+      ${ro ? '' : `<button class="btn btn-sm pt-btn finish" onclick="ptStopOrphan(${_ptJs(s.id)})">■ Ndalo</button>`}
+    </div>`;
+  }).join('');
+  return `<div class="pt-orphans">
+    <div class="pt-orphans-title">⚠ Kohëmatës lyerjeje që janë ende në punë jashtë radhës (${orphans.length})</div>
+    ${rows}
+  </div>`;
+}
+function _ptRenderPaintTab() {
+  _wfDeptUpdateCounts();
+  const body = document.getElementById('wf-dept-body');
+  if (!body) return;
+  const items = _wfGetBlocksForDept('paint');
+  body.innerHTML = `<div id="pt-orphans">${_ptOrphansHtml(items)}</div>` + (items.length
+    ? items.map(it => _wfDeptCardHtml(it, 'paint')).join('')
+    : `<div class="wf-dept-empty">Nuk ka punë për Lyerje në këtë moment.</div>`);
+  _ptEnsureTicker();
+}
+async function _ptRefreshOrphans() {
+  if (!(_wfState.view === 'departments' && _wfDept.currentTab === 'paint')) return;
+  try { await _ptLoadOpenAll(); } catch (e) { console.warn('[pt] open timers load failed:', e); return; }
+  const el = document.getElementById('pt-orphans');
+  if (el) el.innerHTML = _ptOrphansHtml(_wfGetBlocksForDept('paint'));
+  _ptEnsureTicker();
+}
+async function ptStopOrphan(sessionId) {
+  if (_ptIsReadOnly()) { shellToast('Pamje vetëm-leximi', 'err'); return; }
+  if (_pt.busy) { shellToast('Prit — një veprim tjetër po ruhet…', 'err'); return; }
+  const s = (_pt.openAll || []).find(x => x.id === sessionId);
+  if (!s) return;
+  if (!confirm(`Ndalo kohëmatësin "${s.stepLabel || s.step}" për ${s.subLabel || ''}?\nMbarimi regjistrohet tani; mund ta korrigjosh më vonë te 🕒 Kohët.`)) return;
+  _pt.busy = true;
+  try {
+    await _ptTxStopSession(sessionId, 'stray-stop');
+    shellToast('Kohëmatësi u ndal ✓', 'ok');
+  } catch (e) {
+    shellToast(e && e.message ? e.message : 'Gabim', 'err');
+  } finally {
+    _pt.busy = false;
+    await _ptRefreshOrphans();
+    _ptRefreshViews();
+  }
+}
+
+// Re-render whatever is on screen after a time-tracking change.
+function _ptRefreshViews() {
+  try {
+    if (_wfState.view === 'departments' && _wfDept.currentTab === 'paint') {
+      // Sections were added / removed / reordered elsewhere → full reload.
+      if (!_wfDept.loadedAt) renderDepartments('paint', true);
+      else _ptRenderPaintTab();
+    } else if (_wfState.view === 'order') {
+      wfRenderOrderDetail();
+    } else if (_wfState.view === 'block') {
+      wfRenderBlockSide();
+    }
+  } catch (e) { console.warn('[pt] refresh failed:', e); }
+  if (_pt.modal) ptRenderModal();
+  _ptEnsureTicker();
+}
+
+// ─── Worker picker ────────────────────────────────────────────────
+function _ptRememberWorkers(ws) {
+  try { localStorage.setItem('inco.pt.lastWorkers', JSON.stringify((ws || []).map(w => w.id))); } catch (_) {}
+}
+// Pre-selection: the workers of this step's last interval (resume), else the
+// workers this device used last.
+function _ptLastWorkerIds(st) {
+  const last = st && st.sessions && st.sessions[st.sessions.length - 1];
+  if (last && Array.isArray(last.workers) && last.workers.length) return last.workers.map(w => w.id);
+  try { return JSON.parse(localStorage.getItem('inco.pt.lastWorkers') || '[]'); } catch (_) { return []; }
+}
+// Resolves to [{id,name}] ([] only when no workers are configured at all) or
+// null on cancel.
+async function _ptPickWorkers(preselectIds, title, okLabel) {
+  try { await _wkEnsureLoaded(); }
+  catch (e) { shellToast('Punëtorët nuk u ngarkuan: ' + (e.message || e), 'err'); return null; }
+  const active = _wkActive();
+  if (!active.length) {
+    return confirm('Nuk ka punëtorë të regjistruar (Konfigurim → Punëtorët).\n\nTë vazhdoj pa emra?') ? [] : null;
+  }
+  return new Promise(resolve => {
+    const sel = new Set((preselectIds || []).filter(id => active.some(w => w.id === id)));
+    _pt.pick = { sel, resolve, active };
+    document.getElementById('pt-pick-title').textContent = title || 'Kush punon?';
+    document.getElementById('pt-pick-ok').textContent = okLabel || '▶ Fillo';
+    document.getElementById('pt-pick-body').innerHTML = active.map(w =>
+      `<span class="pt-wchip${sel.has(w.id) ? ' on' : ''}" onclick="_ptPickToggle(${_ptJs(w.id)}, this)">👷 ${escHtml(w.name || '')}</span>`
+    ).join('');
+    document.getElementById('pt-workers-modal').style.display = 'flex';
+  });
+}
+function _ptPickToggle(id, el) {
+  if (!_pt.pick) return;
+  if (_pt.pick.sel.has(id)) _pt.pick.sel.delete(id); else _pt.pick.sel.add(id);
+  if (el) el.classList.toggle('on', _pt.pick.sel.has(id));
+}
+function _ptPickDone(ok) {
+  const p = _pt.pick;
+  if (!p) return;
+  if (ok && p.sel.size === 0) { shellToast('Zgjidh të paktën një punëtor', 'err'); return; }
+  _pt.pick = null;
+  document.getElementById('pt-workers-modal').style.display = 'none';
+  p.resolve(ok ? p.active.filter(w => p.sel.has(w.id)).map(w => ({ id: w.id, name: w.name || '' })) : null);
+}
+
+// ─── Detail modal: every interval of the 6 steps, manual add / edit ──
+function _ptModalCtx() {
+  const m = _pt.modal;
+  if (!m) return null;
+  const order = _ptResolveOrder(m.orderKey);
+  if (!order) return null;
+  const bi = _ptBlockIdx(order, m.blockId);
+  if (bi < 0) return null;
+  return { m, order, bi, block: order.blocks[bi] };
+}
+async function ptOpenModal(orderKey, blockIdx, focusStep) {
+  const order = _ptResolveOrder(orderKey);
+  const block = order && order.blocks && order.blocks[blockIdx];
+  if (!block) { shellToast('Porosia nuk u gjet', 'err'); return; }
+  _pt.modal = { orderKey: String(orderKey), blockId: block.id, focusStep: focusStep || null, form: null };
+  document.getElementById('pt-modal').style.display = 'flex';
+  document.getElementById('pt-modal-summary').innerHTML = '';
+  document.getElementById('pt-modal-body').innerHTML = '<div class="pt-empty">Duke ngarkuar…</div>';
+  try {
+    await Promise.all([_ptFreshen(orderKey), _wkEnsureLoaded()]);
+  } catch (e) {
+    if (!_pt.modal) return;
+    document.getElementById('pt-modal-body').innerHTML =
+      `<div class="pt-empty" style="color:#b91c1c;">Gabim gjatë ngarkimit: ${escHtml(e.message || String(e))}</div>`;
+    return;
+  }
+  if (!_pt.modal) return;            // closed while loading
+  ptRenderModal();
+  if (focusStep) {
+    const el = document.getElementById('pt-step-' + focusStep);
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+  }
+}
+// force=true skips the unsaved-form question (programmatic close).
+function ptCloseModal(force) {
+  if (!force && _pt.modal && _pt.modal.form &&
+      !confirm('Ke një interval të paruajtur — ta mbyll pa e ruajtur?')) return;
+  _pt.modal = null;
+  document.getElementById('pt-modal').style.display = 'none';
+  _ptRefreshViews();
+}
+
+function ptRenderModal() {
+  const ctx = _ptModalCtx();
+  if (!ctx) { if (_pt.modal) ptCloseModal(true); return; }
+  const { m, order, bi } = ctx;
+  // Keep what the user typed in the open form across re-renders — but never
+  // carry a PREVIOUS form's inputs into a freshly opened one.
+  if (m.form && !m.form.skipCapture) {
+    const g = id => document.getElementById(id);
+    if (g('pt-f-start')) m.form.draft = { start: g('pt-f-start').value, end: g('pt-f-end').value, note: g('pt-f-note').value };
+  }
+  const ro = _ptIsReadOnly();
+  const snap = _ptSnapshot(order, bi);
+  const steps = WF_PAINT_SUBSTAGES.map(sk => _ptStepState(order, bi, sk));
+  const wk = new Map((_wk.list || []).map(w => [w.id, w]));
+
+  document.getElementById('pt-modal-title').textContent = `🕒 Kohët e lyerjes — ${snap.subLabel}`;
+  document.getElementById('pt-modal-sub').textContent =
+    `${snap.klientEmri} · ${snap.materialName} · ${snap.m2Total.toFixed(2)} m² lyerje · ${snap.pieces} copë` +
+    (snap.kodiBojes ? ` · Bojë: ${snap.kodiBojes}` : '');
+
+  // Summary (live from the entries; real reports come later).
+  const now = Date.now();
+  let work = 0, sand = 0, coat = 0, man = 0;
+  for (const st of steps) for (const s of st.sessions) {
+    const d = Math.max(0, (s.endMs != null ? s.endMs : now) - s.startMs);
+    work += d;
+    if (WF_PAINT_SUBKIND[st.step] === 'zmerilim') sand += d; else coat += d;
+    man += d * Math.max(1, (s.workers || []).length);
+  }
+  const perM2 = snap.m2Total > 0 ? Math.round(work / 60000 / snap.m2Total) : null;
+  document.getElementById('pt-modal-summary').innerHTML = `<div class="pt-summary">
+    <span>Koha totale e punës: <b>${_ptFmtDur(work)}</b></span>
+    <span>Zmerilim: <b>${_ptFmtDur(sand)}</b></span>
+    <span>Lyerje: <b>${_ptFmtDur(coat)}</b></span>
+    <span>Orë-njeri: <b>${_ptFmtDur(man)}</b></span>
+    ${perM2 != null ? `<span>Min / m²: <b>${perM2}</b></span>` : ''}
+  </div>`;
+
+  const kJ = _ptJs(m.orderKey);
+  const lastDoneIdx = steps.reduce((acc, st, i) => st.base === 'done' ? i : acc, -1);
+  const subsWf = ctx.block.workflow.paint.substages;
+  const stepsHtml = steps.map((st, i) => {
+    const label = WF_PAINT_SUBLABELS[st.step];
+    const sJ = _ptJs(st.step);
+    const badge = st.base === 'done' ? ['done', 'Mbaruar']
+                : st.status === 'running' ? ['running', 'Në punë']
+                : st.status === 'paused' ? ['paused', 'Në pauzë']
+                : st.base === 'pending' ? ['next', 'Radhë']
+                : ['', 'I bllokuar'];
+    const act = (a, txt, cls) =>
+      `<button class="btn btn-sm pt-btn ${cls}" onclick="ptAction(${kJ},${bi},${sJ},${_ptJs(a)})">${txt}</button>`;
+    let btns = '';
+    if (!ro) {
+      if (st.status === 'running')     btns = act('pause', '⏸ Pauzë', 'pause') + act('finish', '■ Mbaro', 'finish');
+      else if (st.status === 'paused') btns = act('start', '▶ Vazhdo', 'start') + act('finish', '■ Mbaro', 'finish');
+      else if (st.status === 'next')   btns = act('start', '▶ Fillo', 'start') + act('finish', '■ Mbaro', 'finish');
+      else if (st.base === 'done' && i === lastDoneIdx) btns = act('revert', '↩ Rikthe', 'revert');
+    }
+    const rows = st.sessions.map((s, n) => {
+      const names = (s.workers || []).map(w => (wk.get(w.id) && wk.get(w.id).name) || w.name).filter(Boolean).join(', ');
+      const dur = s.endMs != null
+        ? _ptFmtDur(s.endMs - s.startMs)
+        : `<span data-pt-live="${Number(s.startMs)}" data-pt-base="0">${_ptFmtDur(now - s.startMs, true)}</span>`;
+      const edited = (s.edits || []).length
+        ? ` <span title="${escHtml((s.edits || []).map(e => `${_ptFmtDT(e.atMs)} ${e.by || ''}: ${Object.keys(e.changes || {}).join(', ')}`).join('\n'))}">✎</span>`
+        : '';
+      const tools = ro ? '' : `
+        <button class="pt-icon-btn" title="Ndrysho" onclick="ptOpenForm(${sJ},${_ptJs(s.id)})">✎</button>
+        <button class="pt-icon-btn" title="Fshi" onclick="ptDeleteSession(${_ptJs(s.id)})">🗑</button>`;
+      return `<tr>
+        <td class="mono">${n + 1}</td>
+        <td class="mono">${_ptFmtDT(s.startMs)}</td>
+        <td class="mono">${s.endMs != null ? _ptFmtDT(s.endMs) : '<b style="color:#1e40af;">në punë…</b>'}</td>
+        <td class="mono">${dur}</td>
+        <td>${escHtml(names || '—')}</td>
+        <td><span class="pt-src ${s.source === 'manual' ? 'manual' : ''}">${s.source === 'manual' ? 'manual' : 'buton'}</span>${edited}</td>
+        <td>${escHtml(s.note || '')}</td>
+        <td style="white-space:nowrap;text-align:right;">${tools}</td>
+      </tr>`;
+    }).join('');
+    const table = st.sessions.length ? `<table class="pt-int">
+      <thead><tr><th>#</th><th>FILLIMI</th><th>MBARIMI</th><th>KOHA</th><th>PUNËTORËT</th><th>BURIMI</th><th>SHËNIM</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>` : '';
+    const formHere = m.form && m.form.step === st.step;
+    const form = formHere ? _ptFormHtml(ctx, st) : '';
+    const addLink = (!ro && st.base !== 'locked' && !formHere)
+      ? `<button class="pt-link" onclick="ptOpenForm(${sJ})">+ Shto interval manual</button>` : '';
+    const total = (st.open || st.closedMs) ? `<span class="pt-step-total">⏱ ${_ptTimeHtml(st)}</span>` : '';
+    const doneAt = st.base === 'done' && subsWf[st.step] && subsWf[st.step].doneAt
+      ? `<span style="font-size:11px;color:var(--muted);">mbaroi ${_ptFmtDT(subsWf[st.step].doneAt)}</span>` : '';
+    return `<div class="pt-step ${st.base === 'locked' ? 'locked' : ''} ${m.focusStep === st.step ? 'focus' : ''}" id="pt-step-${st.step}">
+      <div class="pt-step-head">
+        <span class="pt-step-no">${i + 1}</span>
+        <span class="pt-step-name">${escHtml(label)}</span>
+        <span class="pt-badge ${badge[0]}">${badge[1]}</span>
+        ${total}${doneAt}
+        <span class="pt-step-btns">${btns}</span>
+      </div>
+      ${table}${form}${addLink}
+    </div>`;
+  }).join('');
+  document.getElementById('pt-modal-body').innerHTML = stepsHtml;
+  if (m.form) m.form.skipCapture = false;
+  _ptEnsureTicker();
+}
+
+// Manual add / edit form for one step (inside the modal).
+function ptOpenForm(step, editId) {
+  const ctx = _ptModalCtx();
+  if (!ctx || _ptIsReadOnly()) return;
+  const st = _ptStepState(ctx.order, ctx.bi, step);
+  const sess = editId ? st.sessions.find(s => s.id === editId) : null;
+  const ids = sess ? (sess.workers || []).map(w => w.id) : _ptLastWorkerIds(st);
+  // `shown` = what the inputs display now. On save only fields the user
+  // changed are written, so a stale form never undoes another device's edit.
+  const shown = sess ? { start: _ptToLocalInput(sess.startMs), end: _ptToLocalInput(sess.endMs),
+                         note: (sess.note || '').trim(), workerIds: ids.slice().sort().join('|') } : null;
+  ctx.m.form = { step, editId: editId || null, workerIds: new Set(ids), draft: null, skipCapture: true, shown };
+  ctx.m.focusStep = step;
+  ptRenderModal();
+}
+function ptCloseForm() {
+  if (!_pt.modal) return;
+  _pt.modal.form = null;
+  ptRenderModal();
+}
+function _ptFormHtml(ctx, st) {
+  const f = ctx.m.form;
+  const sess = f.editId ? st.sessions.find(s => s.id === f.editId) : null;
+  const d = f.draft;
+  const startVal = d ? d.start : (sess ? _ptToLocalInput(sess.startMs) : '');
+  const endVal   = d ? d.end   : (sess ? _ptToLocalInput(sess.endMs)   : '');
+  const noteVal  = d ? d.note  : (sess ? (sess.note || '') : '');
+  // Active workers + any (now inactive) worker already on the edited entry.
+  const pool = _wkActive().slice();
+  for (const w of (sess && sess.workers) || []) if (!pool.some(p => p.id === w.id)) pool.push(w);
+  const chips = pool.map(w =>
+    `<span class="pt-wchip${f.workerIds.has(w.id) ? ' on' : ''}" onclick="ptFormToggleWorker(${_ptJs(w.id)}, this)">👷 ${escHtml(w.name || '')}</span>`
+  ).join('') || '<span style="font-size:12px;color:var(--muted);">Nuk ka punëtorë (Konfigurim → Punëtorët)</span>';
+  const hint = st.base === 'pending' ? 'Mbarimi bosh = ende në punë.'
+             : st.base === 'locked' ? 'Hap i bllokuar — mund të korrigjohen vetëm intervalet ekzistuese (me mbarim).'
+             : 'Ky hap është mbaruar — mbarimi është i detyrueshëm.';
+  return `<div class="pt-form">
+    <label>FILLIMI<input type="datetime-local" id="pt-f-start" value="${escHtml(startVal)}"></label>
+    <label>MBARIMI<input type="datetime-local" id="pt-f-end" value="${escHtml(endVal)}"></label>
+    <label style="flex:1;min-width:180px;">SHËNIM<input type="text" id="pt-f-note" maxlength="200" value="${escHtml(noteVal)}" placeholder="opsionale"></label>
+    <div style="width:100%;font-size:11px;color:var(--muted);font-weight:700;">PUNËTORËT</div>
+    <div class="pt-form-workers">${chips}</div>
+    <div style="width:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-sm pt-btn finish" onclick="ptSaveForm()">💾 ${f.editId ? 'Ruaj ndryshimin' : 'Shto intervalin'}</button>
+      <button class="btn btn-sm btn-ghost" onclick="ptCloseForm()">Anulo</button>
+      <span style="font-size:11px;color:var(--muted);">${hint}</span>
+    </div>
+  </div>`;
+}
+function ptFormToggleWorker(id, el) {
+  const f = _pt.modal && _pt.modal.form;
+  if (!f) return;
+  if (f.workerIds.has(id)) f.workerIds.delete(id); else f.workerIds.add(id);
+  if (el) el.classList.toggle('on', f.workerIds.has(id));
+}
+
+async function ptSaveForm() {
+  const ctx0 = _ptModalCtx();
+  if (!ctx0 || !ctx0.m.form || _ptIsReadOnly()) return;
+  if (_pt.busy) { shellToast('Prit — një veprim tjetër po ruhet…', 'err'); return; }
+  const m = ctx0.m, f = m.form;
+  const sv = document.getElementById('pt-f-start').value;
+  const ev = document.getElementById('pt-f-end').value;
+  const note = (document.getElementById('pt-f-note').value || '').trim();
+  const shown = f.shown;
+  const touched = {
+    start:   !shown || sv !== shown.start,
+    end:     !shown || ev !== shown.end,
+    note:    !shown || note !== shown.note,
+    workers: !shown || [...f.workerIds].sort().join('|') !== shown.workerIds,
+  };
+  _pt.busy = true;
+  try {
+    await _ptFreshen(m.orderKey);                       // validate on fresh data
+    const ctx = _ptModalCtx();
+    if (!ctx) throw new Error('Seksioni nuk u gjet — rifresko faqen');
+    const st = _ptStepState(ctx.order, ctx.bi, f.step);
+    const sess = f.editId ? st.sessions.find(s => s.id === f.editId) : null;
+    if (f.editId && !sess) throw new Error('Intervali nuk ekziston më (u fshi nga një pajisje tjetër?)');
+    // An input left untouched keeps the server's current value: exact ms
+    // (datetime-local has minute precision) and any edit made meanwhile on
+    // another device (e.g. a running interval closed there stays closed).
+    const start = (sess && !touched.start) ? sess.startMs : _ptFromLocalInput(sv);
+    const end = (sess && !touched.end) ? sess.endMs
+              : !ev ? null
+              : _ptFromLocalInput(ev);
+    const now = Date.now(), SKEW = 5 * 60 * 1000;
+    if (start == null) throw new Error('Vendos datën dhe orën e fillimit');
+    if (touched.end && ev && end == null) throw new Error('Mbarimi nuk është i vlefshëm');
+    if (start > now + SKEW || (end != null && end > now + SKEW)) throw new Error('Koha nuk mund të jetë në të ardhmen');
+    if (end != null && end <= start) throw new Error('Mbarimi duhet të jetë pas fillimit');
+    if (st.base === 'locked' && !(sess && end != null)) {
+      throw new Error('Hap i bllokuar — mund të korrigjohen vetëm intervalet ekzistuese, me mbarim');
+    }
+    if (end == null && st.base !== 'pending') throw new Error('Vetëm hapi aktiv mund të ketë interval "në punë" — vendos mbarimin');
+    // No overlap with this step's other intervals (an open interval runs to ∞).
+    const others = st.sessions.filter(s => s.id !== f.editId);
+    const aS = start, aE = end == null ? Infinity : end;
+    const clash = others.find(s => aS < (s.endMs == null ? Infinity : s.endMs) && s.startMs < aE);
+    if (clash) {
+      throw new Error(`Mbivendoset me intervalin ${_ptFmtDT(clash.startMs)} – ${clash.endMs != null ? _ptFmtDT(clash.endMs) : 'në punë'}`);
+    }
+    // Workers: an unchanged selection keeps the stored entries verbatim (a
+    // worker renamed since must not show up as an edit of this interval).
+    const ids = [...f.workerIds];
+    const prevIds = sess ? (sess.workers || []).map(w => w.id) : null;
+    let workers;
+    if (prevIds && prevIds.length === ids.length && prevIds.every(id => f.workerIds.has(id))) {
+      workers = sess.workers;
+    } else {
+      const pool = _wkActive().concat(((sess && sess.workers) || []).filter(w => !_wkActive().some(a => a.id === w.id)));
+      workers = pool.filter(w => f.workerIds.has(w.id)).map(w => ({ id: w.id, name: w.name || '' }));
+    }
+    if (_wkActive().length && !workers.length) throw new Error('Zgjidh të paktën një punëtor');
+    if (end != null && end - start > 12 * 3600 * 1000 &&
+        !confirm(`Intervali zgjat ${_ptFmtDur(end - start)} — a është i saktë?`)) return;
+
+    if (sess) {
+      const changes = {};
+      if (touched.start) changes.startMs = start;
+      if (touched.end) changes.endMs = end;
+      if (touched.note) changes.note = note;
+      if (touched.workers) changes.workers = workers;
+      const changed = await _ptTxEditSession(m.orderKey, m.blockId, f.step, sess.id, changes);
+      shellToast(changed ? 'Intervali u përditësua ✓' : 'Asnjë ndryshim', 'ok');
+    } else if (end == null) {
+      await _ptTxStart(m.orderKey, m.blockId, f.step, { startMs: start, workers, note, source: 'manual' });
+      _ptRememberWorkers(workers);
+      shellToast('Intervali u shtua (në punë) ✓', 'ok');
+    } else {
+      await _ptTxAddClosed(m.orderKey, m.blockId, f.step, { startMs: start, endMs: end, workers, note, source: 'manual' });
+      _ptRememberWorkers(workers);
+      shellToast('Intervali u shtua ✓', 'ok');
+    }
+    if (_pt.modal) _pt.modal.form = null;
+  } catch (e) {
+    console.error('[pt] save failed:', e);
+    shellToast(e && e.message ? e.message : 'Gabim', 'err');
+  } finally {
+    _pt.busy = false;
+    _ptRefreshViews();
+    _ptRefreshOrphans();
+  }
+}
+
+async function ptDeleteSession(sessionId) {
+  const ctx = _ptModalCtx();
+  if (!ctx || _ptIsReadOnly()) return;
+  if (_pt.busy) { shellToast('Prit — një veprim tjetër po ruhet…', 'err'); return; }
+  const sess = (_pt.byOrder.get(ctx.m.orderKey) || []).find(s => s.id === sessionId && !s.deleted);
+  if (!sess) return;
+  if (!confirm(`Fshi intervalin ${_ptFmtDT(sess.startMs)} – ${sess.endMs != null ? _ptFmtDT(sess.endMs) : 'në punë'}?\n(Ruhet në histori si i fshirë.)`)) return;
+  _pt.busy = true;
+  try {
+    await _ptTxDeleteSession(ctx.m.orderKey, ctx.m.blockId, sess.step, sessionId);
+    shellToast('Intervali u fshi', 'ok');
+  } catch (e) {
+    shellToast(e && e.message ? e.message : 'Gabim', 'err');
+  } finally {
+    _pt.busy = false;
+    _ptRefreshViews();
+    _ptRefreshOrphans();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WORKERS (Konfigurim → Punëtorët) — people picked on paint sessions
+// ═══════════════════════════════════════════════════════════════════
+// `workers/{id}` = { name, active, createdAt, createdBy, updatedAt, updatedBy }
+// Saved immediately (not part of the Konfigurim draft). Never hard-deleted:
+// deactivating hides a worker from the pickers while old entries keep it.
+window._wk = { list: null, loadedAt: 0, busy: false };
+
+// Server data only; on failure keep (and return) the last good list.
+async function _wkEnsureLoaded(force) {
+  if (!force && _wk.list && Date.now() - _wk.loadedAt < 60000) return _wk.list;
+  try {
+    const snap = await _ptNet(db.collection('workers').get({ source: 'server' }));
+    _wk.list = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    _wkSort();
+    _wk.loadedAt = Date.now();
+  } catch (e) {
+    if (!_wk.list) throw e;
+    console.warn('[wk] reload failed, keeping cached list:', e);
+  }
+  return _wk.list;
+}
+function _wkSort() {
+  (_wk.list || []).sort((a, b) =>
+    (a.active === false) - (b.active === false) ||
+    (a.name || '').localeCompare(b.name || '', 'sq', { sensitivity: 'base' }));
+}
+function _wkActive() { return (_wk.list || []).filter(w => w.active !== false); }
+function _wkUpdateCount() {
+  const el = document.getElementById('cfg-tab-count-workers');
+  if (el) el.textContent = _wkActive().length;
+}
+function _wkNormName(s) { return String(s || '').trim().replace(/\s+/g, ' '); }
+
+async function renderWorkersList(force) {
+  const wrap = document.getElementById('cfg-workers-list');
+  if (!wrap) return;
+  if (!_wk.list || force) wrap.innerHTML = '<div class="cfg-empty">Duke ngarkuar…</div>';
+  try { await _wkEnsureLoaded(force); }
+  catch (e) {
+    wrap.innerHTML = `<div class="cfg-empty" style="color:#b91c1c;">Gabim: ${escHtml(e.message || String(e))}</div>`;
+    return;
+  }
+  _wkUpdateCount();
+  const list = _wk.list || [];
+  if (!list.length) {
+    wrap.innerHTML = '<div class="cfg-empty">Ende nuk ka punëtorë. Shto emrat e njerëzve që punojnë në lyerje.</div>';
+    return;
+  }
+  wrap.innerHTML = list.map(w => `<div class="wk-row${w.active === false ? ' off' : ''}">
+      <span style="font-size:16px;">👷</span>
+      <input type="text" class="wk-name" maxlength="60" value="${escHtml(w.name || '')}"
+        onchange="wkRename(${_ptJs(w.id)}, this)">
+      <span class="wk-status">${w.active === false ? 'JOAKTIV' : 'AKTIV'}</span>
+      <button class="btn btn-sm btn-ghost" onclick="wkToggleActive(${_ptJs(w.id)})">${w.active === false ? 'Aktivizo' : 'Çaktivizo'}</button>
+    </div>`).join('');
+}
+
+async function wkAdd() {
+  if (_wk.busy) return;
+  const inp = document.getElementById('wk-new-name');
+  const name = _wkNormName(inp && inp.value);
+  if (!name) { shellToast('Shkruaj emrin e punëtorit', 'err'); return; }
+  _wk.busy = true;
+  try {
+    await _wkEnsureLoaded(true);
+    if ((_wk.list || []).some(w => _wkNormName(w.name).toLowerCase() === name.toLowerCase())) {
+      shellToast('Ky punëtor ekziston tashmë', 'err'); return;
+    }
+    const doc = { name, active: true, createdAt: Date.now(), createdBy: _ptUser() };
+    const ref = await _ptNet(db.collection('workers').add(doc));
+    _wk.list.push(Object.assign({ id: ref.id }, doc));
+    _wkSort();
+    if (inp) inp.value = '';
+    shellToast(`👷 ${name} u shtua`, 'ok');
+    renderWorkersList(false);
+  } catch (e) {
+    shellToast('Gabim: ' + (e.message || e), 'err');
+  } finally {
+    _wk.busy = false;
+  }
+}
+
+// Renames in place (no list re-render, so typing in another row is kept).
+async function wkRename(id, inputEl) {
+  const w = (_wk.list || []).find(x => x.id === id);
+  if (!w) return;
+  const name = _wkNormName(inputEl && inputEl.value);
+  const restore = () => { if (inputEl) inputEl.value = w.name || ''; };
+  if (!name) { shellToast('Emri nuk mund të jetë bosh', 'err'); restore(); return; }
+  if ((_wk.list || []).some(x => x.id !== id && _wkNormName(x.name).toLowerCase() === name.toLowerCase())) {
+    shellToast('Një punëtor tjetër e ka këtë emër', 'err'); restore(); return;
+  }
+  if (name === w.name) return;
+  try {
+    await _ptNet(db.collection('workers').doc(id).update({ name, updatedAt: Date.now(), updatedBy: _ptUser() }));
+    w.name = name;
+    if (inputEl) inputEl.value = name;
+    shellToast('Emri u ruajt ✓', 'ok');
+  } catch (e) {
+    shellToast('Gabim: ' + (e.message || e), 'err');
+    restore();
+  }
+}
+
+async function wkToggleActive(id) {
+  const w = (_wk.list || []).find(x => x.id === id);
+  if (!w || _wk.busy) return;
+  const active = w.active === false;
+  _wk.busy = true;
+  try {
+    await _ptNet(db.collection('workers').doc(id).update({ active, updatedAt: Date.now(), updatedBy: _ptUser() }));
+    w.active = active;
+    _wkSort();
+    renderWorkersList(false);
+  } catch (e) {
+    shellToast('Gabim: ' + (e.message || e), 'err');
+  } finally {
+    _wk.busy = false;
+  }
 }
 
 // ─── View 3: block workspace (PDF + drawing) ──────────────────────
@@ -17025,18 +18662,17 @@ function wfRenderBlockActionBar() {
     return;
   }
 
-  // Paint dept: advance just the CURRENT sub-stage so each coat is its own
-  // discrete acknowledgement (Zmerilim → Pastë 1 → Pastë 2 → Lyerje finale).
+  // Paint dept: time-tracked controls for the CURRENT step (▶ Fillo / ⏸ Pauzë
+  // / ■ Mbaro with a live timer). Mbaro returns to the list, as before.
   if (targetStage === 'paint') {
-    const subs = block.workflow.paint.substages;
-    const next = WF_PAINT_SUBSTAGES.find(k => subs[k].status !== 'done');
-    if (!next) {
-      bar.innerHTML = `<span class="wf-draw-status">✓ Lyerja ka mbaruar</span>`;
-      return;
-    }
-    const subLabel = WF_PAINT_SUBLABELS[next];
-    bar.innerHTML = `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-weight:700"
-      onclick="wfAdvancePaintSubAndBack('${next}')">✓ ${escHtml(subLabel)} — Mbarova</button>`;
+    const key = _ptKey(order);
+    _ptMaybeRefresh(key, () => { if (_wfState.view === 'block') wfRenderBlockActionBar(); });
+    // _ptControlsHtml omits the buttons for read-only viewers (partners).
+    bar.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;">
+      <div style="flex:1;min-width:0;">${_ptControlsHtml(order, _wfState.blockId, { back: true })}</div>
+      <button class="btn btn-sm btn-ghost" onclick="ptOpenModal(${_ptJs(key)},${Number(_wfState.blockId)})">🕒 Kohët</button>
+    </div>`;
+    _ptEnsureTicker();
     return;
   }
 
@@ -17063,9 +18699,11 @@ async function wfAdvanceStageAndBack(stage) {
   }
   wfBackFromBlock();
 }
+// Legacy entry point: finish a paint step (closing its running interval)
+// and go back — routed through the time-tracking action.
 async function wfAdvancePaintSubAndBack(subKey) {
-  await wfApplyStageChange(_wfState.blockId, 'paint', subKey, 'done');
-  wfBackFromBlock();
+  if (!_wfState.order) return;
+  await ptAction(_ptKey(_wfState.order), _wfState.blockId, subKey, 'finish', { back: true });
 }
 
 function wfRenderBlockSide() {
@@ -17548,11 +19186,9 @@ async function wfDrawPersist() {
   // Decide which block we're saving for.
   let block = null;
   let firestoreId = null;
-  let bucketBlocks = null;
   if (_wfState.order && _wfState.blockId != null && _wfState.order.blocks) {
     block = _wfState.order.blocks[_wfState.blockId];
     firestoreId = _wfState.order.id;
-    bucketBlocks = _wfState.order.blocks;
   } else if (_wfEditor.active && _wfEditor.block) {
     block = _wfEditor.block;
     // No firestoreId — local-only save.
@@ -17577,8 +19213,12 @@ async function wfDrawPersist() {
 
   if (firestoreId != null) {
     try {
-      await db.collection('porosite').doc(String(firestoreId))
-        .update({ blocks: bucketBlocks });
+      // Write ONLY this section's designs onto the server's current copy —
+      // the in-memory order can be stale and must never be written whole.
+      const designs = JSON.parse(JSON.stringify(block.workflow.cnc.designs));
+      await _wfTxUpdateBlocks(firestoreId, block.id, _wfState.blockId, fb => {
+        fb.workflow.cnc.designs = designs;
+      });
       setStatus('✓ U ruajt');
       setTimeout(() => statusEls.forEach(el => { if (el.textContent === '✓ U ruajt') el.textContent = ''; }), 1500);
     } catch (e) {

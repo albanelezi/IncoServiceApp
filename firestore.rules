@@ -94,9 +94,11 @@ service cloud.firestore {
 
     // ───── Paint time tracking (Lyerje) ───────────────────────────
     // One doc per work interval of a paint step on one order section.
-    // Append-only by convention (edits/deletes are audited in-doc).
+    // The app only soft-deletes (deleted:true + audit entry), so a hard
+    // delete is never legitimate — deny it to keep the history intact.
     match /paint_sessions/{sessionId} {
-      allow read, write: if signedIn();
+      allow read, create, update: if signedIn();
+      allow delete: if false;
     }
 
     // ───── Workers (shop personnel picked on paint sessions) ──────
