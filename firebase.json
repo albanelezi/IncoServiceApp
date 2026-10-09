@@ -20,7 +20,9 @@
       "*.bak",
       "_*.js",
       "**/*_WINCUT/**",
-      "**/*.txt"
+      "**/*.txt",
+      "**/*.md",
+      "handover-tools/**"
     ],
     "rewrites": [
       { "source": "**", "destination": "/INCO_Furniture_v12.html" }
