@@ -640,6 +640,6 @@ Every saved order is billed in **Inco Bilanc** (the accounting app, Firebase pro
   - `svc-<id>-machining`: cutting, Bordim and Frezim, from Reparti makinerive
   - `svc-<id>-painting`: m² of painting, from Reparti i lyerjes
 
-  Saving the order again updates them, creates newly needed ones and removes ones no longer needed. Fiscalized or paid invoices are left alone. Deleting the order removes the rest.
+  Saving the order again updates them, creates newly needed ones and removes ones no longer needed. Fiscalized or paid invoices, and invoices edited by hand in Bilanc (`serviceEdited`), are left alone; the workshop is warned once per order change. An invoice deleted by hand in Bilanc is never recreated. Deleting the order removes the rest.
 - **No configuration:** warehouses are found by name. Orders dated before 2026-10-09 (`SERVICE_START_DATE` in the bridge) are not billed, because they were invoiced by hand.
 - **Never blocks a save:** the call runs after the save. A failure shows a toast, and saving again retries. Partners get no toasts.
