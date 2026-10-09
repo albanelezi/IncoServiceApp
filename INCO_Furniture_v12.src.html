@@ -3046,10 +3046,28 @@ table.pt-int td.mono { font-family: 'DM Mono', monospace; white-space: nowrap; }
    HIDE_PRICES to false (see top of the inline <script>). */
 body.hide-prices .price-strip,
 body.hide-prices #grand-total-bar,
-body.hide-prices .col-totali { display: none !important; }
+body.hide-prices .col-totali,
+body.hide-prices .price-inputs,
+body.hide-prices .frezim-price-wrap,
+body.hide-prices #btn-shkarko-fatura,
+body.hide-prices #btn-printo-fatura { display: none !important; }
+/* Materials come from the articles of Inco Bilanc: Konfigurim shows them
+   read-only (they are added and changed in Bilanc). Workers stay editable. */
+.cfg-bilanc-note { display: none; margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface2); font-size: 12.5px; line-height: 1.5; color: var(--text2, var(--text)); }
+.cfg-bilanc-note a { color: var(--gold); font-weight: 700; text-decoration: none; margin-left: 6px; }
+.cfg-bilanc-note .cfg-bilanc-skipped { display: block; margin-top: 4px; color: #b45309; }
+body.catalog-bilanc .cfg-bilanc-note { display: block; }
+body.catalog-bilanc #cfg-mat-pane > .cfg-pane-toolbar,
+body.catalog-bilanc #cfg-tenie-pane > .cfg-pane-toolbar,
+body.catalog-bilanc #cfg-add-material-form,
+body.catalog-bilanc #cfg-add-tenie-form,
+body.catalog-bilanc #cfg-materials-list .cfg-panel-del,
+body.catalog-bilanc #cfg-materials-list .cfg-mat-fmt-add-pill,
+body.catalog-bilanc #cfg-tenies-list .cfg-panel-del,
+body.catalog-bilanc #cfg-footer-bar { display: none !important; }
 </style>
 </head>
-<body>
+<body class="hide-prices">
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- LOGIN OVERLAY (Pass A) — gates the app behind Firebase Auth      -->
@@ -3330,6 +3348,7 @@ body.hide-prices .col-totali { display: none !important; }
         <button type="button" class="btn btn-sm cfg-add-btn" id="cfg-add-mat-btn" onclick="addMaterial(_cfgTab)">+ <span id="cfg-add-mat-label">Material</span></button>
       </div>
       <div id="cfg-add-material-form" class="cfg-add-form" style="display:none;"></div>
+      <div class="cfg-bilanc-note">Materialet vijnë nga <b>Inco Bilanc → Artikujt</b>: seksioni lexohet nga emri i artikullit (melamine, betoforme, mdf, fiber, tenije / bordim) dhe formati nga masat në emër (p.sh. 3660 x 1830 x 18; pa trashësi = 18 mm). Shtoji ose ndryshoji te Bilanc.<a href="https://incobilanc.web.app/items" target="_blank" rel="noopener">Hap artikujt ↗</a><span class="cfg-bilanc-skipped" id="cfg-bilanc-skipped"></span></div>
       <div id="cfg-materials-list" class="cfg-materials-list"></div>
     </div>
 
@@ -3340,6 +3359,7 @@ body.hide-prices .col-totali { display: none !important; }
         <button type="button" class="btn btn-sm cfg-add-btn" onclick="addTenie()">+ Tenije e re</button>
       </div>
       <div id="cfg-add-tenie-form" class="cfg-add-form" style="display:none;"></div>
+      <div class="cfg-bilanc-note">Tenijet vijnë nga <b>Inco Bilanc → Artikujt</b>: seksioni lexohet nga emri i artikullit (melamine, betoforme, mdf, fiber, tenije / bordim) dhe formati nga masat në emër (p.sh. 3660 x 1830 x 18; pa trashësi = 18 mm). Shtoji ose ndryshoji te Bilanc.<a href="https://incobilanc.web.app/items" target="_blank" rel="noopener">Hap artikujt ↗</a><span class="cfg-bilanc-skipped" id="cfg-bilanc-skipped-t"></span></div>
       <div id="cfg-tenies-list" class="cfg-tenies-list"></div>
     </div>
 
@@ -3796,11 +3816,12 @@ body.hide-prices .col-totali { display: none !important; }
 
 <script>
 
-// Global price-display gate. Prices are ON: each material section carries its
-// own prices (panel/cut/boarding/painting) and totals show across the order
-// list, order detail, kanban, and the invoice PDF.  Flip to `true` (and add the
-// `hide-prices` class back on <body>) to hide all prices again.
-const HIDE_PRICES = false;
+// Global price-display gate. Prices are OFF: prices and invoices belong to
+// Inco Bilanc now (the order is billed there from Bilanc's articles, see BILANC
+// LINK). The section price inputs, totals, the frezim price and the invoice
+// buttons are hidden. Flip to `false` (and remove the `hide-prices` class
+// from <body>) to show them again.
+const HIDE_PRICES = true;
 
 // Konfigurim price-drift signalling is obsolete in the per-section pricing
 // model: prices live on each block and are frozen with the order, so there is
@@ -5572,9 +5593,10 @@ function _bilancOrderPayload(order) {
     if (!Array.isArray(b.rows)) b.rows = [];
     if (!b.cfg) b.cfg = {};
     calcBlock(b);
-    const mat = getMaterialById(b.materialId) || {};
+    const mat = _materialOfBlock(b) || {};
     const fmt = getFormatById(b.formatId) || {};
     const panels = Array.isArray(b.panels) ? b.panels : [];
+    const tenie = blockHasTenie(b) ? getTenieById(b.tenieId) : null;
     const billed = panels.filter(p => p && !p.noPrice).length;
     const primary = primaryOf.get(groupKey(b)) === b.id;
     const frezim = {};
@@ -5593,6 +5615,10 @@ function _bilancOrderPayload(order) {
       bandMl: blockHasTenie(b) ? r3(b.totML) : 0, bandPrice: parseFloat(b.priceBoard) || 0,
       paintM2: blockHasM2(b) ? r3((b.totM2sip || 0) + (b.totM2ans || 0)) : 0, paintPrice: parseFloat(b.pricePaint) || 0,
       frezim: Object.keys(frezim).map(p => ({ price: Number(p), qty: frezim[p] })).filter(f => f.qty > 0),
+      frezimPieces: Object.keys(frezim).reduce((a, p) => a + frezim[p], 0),
+      // Bilanc articles: the board of this section and its edge banding
+      bilancItemId: (mat.items && mat.items[b.formatId]) || b.bilancItemId || '',
+      bilancTenieId: (tenie && tenie.bilanc && tenie.itemId) || '',
       remnantBoards: primary ? panels.length - billed : 0,
     };
   });
@@ -6915,6 +6941,11 @@ async function bootApp() {
       tenies:    teniesSnap.data()._saveStamp    || 0,
     };
 
+    // Step 1.5 — materials, formats and tenie come from Inco Bilanc's articles
+    // (konfig stays as the fallback and for orders made before the switch).
+    msgEl.textContent = 'Po ngarkohen materialet nga Bilanc…';
+    await applyBilancCatalog();
+
     // Step 2: load klientet, orders (summaries only), and kanban in parallel
     msgEl.textContent = 'Po ngarkohen klientët dhe porosite…';
     await Promise.all([
@@ -7146,15 +7177,170 @@ window.addEventListener('beforeunload', (e) => {
 // END FIREBASE INIT
 // ════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════
+// MATERIALS FROM INCO BILANC
+// ═══════════════════════════════════════════════════════════════
+// Materials, board formats and edge-banding (tenie) variants come from the
+// ARTICLES of Inco Bilanc (the main app), not from `konfig`:
+//   section   from the article name, checked in this order: tenie / tenije /
+//             bordim → Tenie, fiber → Fiber, betoform → Betoforme, mdf → MDF,
+//             mel… → Melamine. "Sherbim …" service articles are skipped.
+//   format    from the dimensions in the name: "3660 x 1830 x 18",
+//             "3660*1830*18", "3660 1830 18", "2800x2070" … The first number
+//             is `lung`, the second `larg`; centimetres (366*183) are read as
+//             mm; the thickness defaults to 18 mm.
+//   material  articles of the same section whose names are equal without the
+//             dimensions form ONE material card; each article is one format.
+// Flags kept from the old konfig: MDF without "shqeto" is "me rimeso"
+// (edge banding allowed); fiber is "MDF me rimeso" with "rimeso", melamine
+// with "melamin"/"cotton", otherwise MDF.
+// Ids are derived (bm_<section>_<name>, bf_<L>x<W>x<T>, tenie = article id) and
+// every material keeps its article per format (material.items[formatId]), so
+// the Bilanc invoice bills exactly that article. Sections also store their
+// article (b.bilancItemId): renaming an article in Bilanc never strands an
+// order. The service app's own konfig catalog stays loaded as
+// _LEGACY_CATALOG so orders made before the switch still resolve. If Bilanc
+// cannot be read, the app keeps working with the konfig catalog.
+const BILANC_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyDqJMgvoPHrkOAiQEQiVX62CcoTCoqp2yo',
+  authDomain: 'incobilanc.firebaseapp.com',
+  projectId: 'incobilanc',
+  storageBucket: 'incobilanc.firebasestorage.app',
+  messagingSenderId: '219464262218',
+  appId: '1:219464262218:web:54850d7744cb8e4e437cb3',
+};
+const BILANC_COMPANY_ID = 'inco-group';
+const BILANC_ITEMS_URL = 'https://incobilanc.web.app/items';
+let _LEGACY_CATALOG = null;          // the konfig catalog (orders from before the switch)
+let _BILANC_ITEM_INDEX = {};         // Bilanc article id → { materialId, formatId }
+window._CATALOG_SOURCE = 'konfig';   // 'bilanc' once the articles are loaded
+window._BILANC_SKIPPED = [];         // articles of a section whose format could not be read
+
+function _bcNorm(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function _bcSection(name) {
+  const n = _bcNorm(name);
+  if (/^sherbim\b/.test(n)) return null;
+  if (/teni|bordim/.test(n)) return 'tenie';
+  if (/\bfib/.test(n)) return 'fiber';
+  if (/betoform/.test(n)) return 'betoforme';
+  if (/\bmdf/.test(n)) return 'mdf';
+  if (/\bmel/.test(n)) return 'melamine';
+  return null;
+}
+
+// "Melamine e bardhe 3660 x 1830 x 18" → { lung:3660, larg:1830, thickness:18, base:'Melamine e bardhe' }
+function _bcParseFormat(name) {
+  const s = String(name || '').replace(/\s+/g, ' ').trim();
+  const m = s.match(/(\d{3,4})(?:\s*[x×X*]\s*|\s+)(\d{3,4})(?:(?:\s*[x×X*]\s*|\s+)(\d{1,2}(?:[.,]\d+)?)(?:\s*mm\b)?)?/);
+  if (!m) return null;
+  let lung = parseInt(m[1], 10), larg = parseInt(m[2], 10);
+  if (lung < 1000 && larg < 1000) { lung *= 10; larg *= 10; }   // centimetres
+  let rest = s.slice(0, m.index) + ' ' + s.slice(m.index + m[0].length);
+  let thickness = m[3] ? parseFloat(m[3].replace(',', '.')) : NaN;
+  if (!Number.isFinite(thickness)) {
+    const t = rest.match(/(\d{1,2}(?:[.,]\d+)?)\s*mm\b/i);
+    if (t) { thickness = parseFloat(t[1].replace(',', '.')); rest = rest.replace(t[0], ' '); }
+  }
+  if (!Number.isFinite(thickness) || thickness <= 0) thickness = 18;
+  const base = rest.replace(/\s+/g, ' ').replace(/^[\s\-–,;:()]+|[\s\-–,;:(]+$/g, '').trim();
+  return { lung, larg, thickness, base };
+}
+
+// Bilanc articles → the catalog shape the app already uses ({ formats, materials, tenies }).
+function buildCatalogFromBilancItems(items) {
+  const formats = new Map(), materials = new Map(), tenies = [], skipped = [], index = {};
+  const slug = s => _bcNorm(s).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'material';
+  for (const it of items || []) {
+    if (!it || it.active === false) continue;
+    const name = String(it.name || '').trim();
+    const section = _bcSection(name);
+    if (!section) continue;
+    const price = parseFloat(it.salesPrice) || 0;
+    if (section === 'tenie') {
+      tenies.push({ id: it.id, description: name, price22: price, price28: price, price40: price, price56: price, bilanc: true, itemId: it.id });
+      continue;
+    }
+    const f = _bcParseFormat(name);
+    if (!f) { skipped.push(name); continue; }
+    const fid = 'bf_' + f.lung + 'x' + f.larg + 'x' + String(f.thickness).replace(/[.,]/g, '_');
+    if (!formats.has(fid)) formats.set(fid, { id: fid, lung: f.lung, larg: f.larg, thickness: f.thickness });
+    const base = f.base || name;
+    const mid = 'bm_' + section + '_' + slug(base);
+    let mat = materials.get(mid);
+    if (!mat) {
+      const nb = _bcNorm(base);
+      mat = { id: mid, type: section, description: base, prices: {}, items: {}, bilanc: true };
+      if (section === 'mdf') mat.mePrimoso = !/shqeto/.test(nb);
+      if (section === 'fiber') mat.subType = /rimeso/.test(nb) ? 'mdf_me_rimeso' : /melamin|cotton/.test(nb) ? 'melamine' : 'mdf';
+      materials.set(mid, mat);
+    }
+    if (mat.items[fid]) { skipped.push(name + ' (formati përsëritet)'); continue; }
+    mat.items[fid] = it.id;
+    mat.prices[fid] = price > 0 ? price : 1;   // a value > 0 marks the format as offered (no prices are shown)
+    index[it.id] = { materialId: mid, formatId: fid };
+  }
+  const byText = (a, b) => String(a).localeCompare(String(b), 'sq');
+  return {
+    formats: [...formats.values()].sort((a, b) => a.lung - b.lung || a.larg - b.larg || a.thickness - b.thickness),
+    materials: [...materials.values()].sort((a, b) => byText(a.description, b.description)),
+    tenies: tenies.sort((a, b) => byText(a.description, b.description)),
+    skipped, index,
+  };
+}
+
+// Read the articles from Bilanc (a second, read-only Firebase app) and make
+// them the catalog. Never throws: on any problem the konfig catalog stays.
+async function applyBilancCatalog() {
+  try {
+    const app = (firebase.apps || []).find(a => a.name === 'bilanc') || firebase.initializeApp(BILANC_FIREBASE_CONFIG, 'bilanc');
+    const read = app.firestore().collection('companies').doc(BILANC_COMPANY_ID).collection('items').get();
+    const snap = await Promise.race([read, new Promise((_, rej) => setTimeout(() => rej(new Error('koha mbaroi')), 15000))]);
+    const cat = buildCatalogFromBilancItems(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    if (!cat.materials.length) throw new Error('asnjë material i njohur te artikujt');
+    _LEGACY_CATALOG = { formats: _PRICES_CACHE.formats || [], materials: _PRICES_CACHE.materials || [], tenies: _PRICES_CACHE.tenies || [] };
+    _PRICES_CACHE.formats = cat.formats;
+    _PRICES_CACHE.materials = cat.materials;
+    _PRICES_CACHE.tenies = cat.tenies;
+    _BILANC_ITEM_INDEX = cat.index;
+    window._BILANC_SKIPPED = cat.skipped;
+    window._CATALOG_SOURCE = 'bilanc';
+    document.body.classList.add('catalog-bilanc');
+    const sk = document.getElementById('cfg-bilanc-skipped');
+    if (sk) sk.textContent = cat.skipped.length ? ('Pa format të lexueshëm: ' + cat.skipped.join(', ')) : '';
+  } catch (e) {
+    console.warn('[INCO] Bilanc articles not loaded, using konfig:', e);
+    window._CATALOG_SOURCE = 'konfig';
+    setTimeout(() => shellToast('Materialet nga Bilanc nuk u ngarkuan (' + (e.message || 'rrjeti') + '). Po përdoret konfigurimi i vjetër.', 'err'), 1500);
+  }
+}
+
+// The material of a section: by its id, else through its Bilanc article.
+function _materialOfBlock(b) {
+  if (!b) return null;
+  const m = getMaterialById(b.materialId);
+  if (m) return m;
+  const ix = b.bilancItemId && _BILANC_ITEM_INDEX[b.bilancItemId];
+  return ix ? getMaterialById(ix.materialId) : null;
+}
+
+function _legacyCatalogFind(kind, id) {
+  return (_LEGACY_CATALOG && (_LEGACY_CATALOG[kind] || []).find(x => x.id === id)) || null;
+}
+
 // ─── FORMAT + MATERIAL LOOKUPS ─────────────────────────────────
+// Current catalog first (Bilanc articles), then the konfig catalog of orders
+// made before the switch.
 function getFormatById(formatId) {
   const P = loadPrices();
-  return (P.formats || []).find(f => f.id === formatId) || null;
+  return (P.formats || []).find(f => f.id === formatId) || _legacyCatalogFind('formats', formatId);
 }
 
 function getMaterialById(materialId) {
   const P = loadPrices();
-  return (P.materials || []).find(m => m.id === materialId) || null;
+  return (P.materials || []).find(m => m.id === materialId) || _legacyCatalogFind('materials', materialId);
 }
 
 // All formats are available for every material — the user decides which
@@ -7192,7 +7378,7 @@ function getMaterialPrice(material, formatId) {
 function getTenieById(tenieId) {
   if(!tenieId) return null;
   const P = loadPrices();
-  return (P.tenies || []).find(t => t.id === tenieId) || null;
+  return (P.tenies || []).find(t => t.id === tenieId) || _legacyCatalogFind('tenies', tenieId);
 }
 
 // Return ALL tenie variants (no tier filtering — every variant has both prices).
@@ -7228,7 +7414,7 @@ function getTeniePricesForBlock(b) {
   if(!beh.hasTenie) return zero;
   const tenies = getAllTenies();
   if(tenies.length === 0) return zero;
-  const chosen = tenies.find(t => t.id === b.tenieId) || tenies[0];
+  const chosen = getTenieById(b.tenieId) || tenies[0];
   return {
     price22: parseFloat(chosen.price22) || 0,
     price28: parseFloat(chosen.price28) || 0,
@@ -7244,7 +7430,7 @@ function getTenieDescriptionForBlock(b) {
   if(!beh.hasTenie) return '';
   const tenies = getAllTenies();
   if(tenies.length === 0) return '';
-  const chosen = tenies.find(t => t.id === b.tenieId) || tenies[0];
+  const chosen = getTenieById(b.tenieId) || tenies[0];
   return chosen.description || '';
 }
 
@@ -7292,6 +7478,10 @@ async function persistKonfigTenies() {
 let _konfigDraftStamps = { global: 0, formats: 0, materials: 0, tenies: 0 };
 
 async function savePrices() {
+  if (window._CATALOG_SOURCE === 'bilanc') {
+    shellToast('Materialet menaxhohen te Bilanc → Artikujt', 'err');
+    return;
+  }
   // Explicit save: commits the entire Konfigurim draft to Firestore atomically
   // via a transaction with conflict detection. Pulls service-price fields from
   // DOM first (they don't have onchange handlers wired to the draft), then
@@ -8028,7 +8218,7 @@ function refreshAllBlocksAfterTenieTypesChange() {
     const beh = getMaterialBehavior(material);
     if(beh.hasTenie) {
       const tenies = getAllTenies();
-      const stillValid = tenies.some(t => t.id === b.tenieId);
+      const stillValid = !!getTenieById(b.tenieId);
       if(!stillValid && tenies[0]) b.tenieId = tenies[0].id;
       else if(!stillValid) b.tenieId = null;
       const sel = document.getElementById(`tenie-id-${b.id}`);
@@ -8085,13 +8275,13 @@ function deriveBlockTypeFromMaterial(material) {
 
 // Behavior helpers — read from the material, not a pseudo-panel
 function blockHasTenie(b) {
-  return getMaterialBehavior(getMaterialById(b.materialId)).hasTenie;
+  return getMaterialBehavior(_materialOfBlock(b)).hasTenie;
 }
 function blockHasM2(b) {
-  return getMaterialBehavior(getMaterialById(b.materialId)).hasM2;
+  return getMaterialBehavior(_materialOfBlock(b)).hasM2;
 }
 function blockHasFrezim(b) {
-  return getMaterialBehavior(getMaterialById(b.materialId)).hasFrezim;
+  return getMaterialBehavior(_materialOfBlock(b)).hasFrezim;
 }
 
 // Sync block's derived fields from its (material, format) refs. Call this
@@ -8102,6 +8292,8 @@ function syncBlockFromMaterialFormat(b) {
   if(!material || !format) return;
   b.type = deriveBlockTypeFromMaterial(material);
   b.name = `${material.description} ${format.thickness}mm`;
+  // The exact Bilanc article of this section (survives a rename in Bilanc).
+  b.bilancItemId = (material.items && material.items[b.formatId]) || '';
   b.cfg = b.cfg || { kerf:4.4, trimX:10, trimY:10, dopjimStripMm: 100 };
   b.cfg.lung = parseFloat(format.lung) || 2440;
   b.cfg.larg = parseFloat(format.larg) || 1220;
@@ -8415,7 +8607,7 @@ function renderMatCards() {
       onmouseout="this.style.borderColor='${m.border}';this.style.background='#fff'">
       <div>
         <div style="font-size:14px;font-weight:700;color:var(--text);font-family:'DM Sans',sans-serif;line-height:1.2">${formatLabel(f)}</div>
-        <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;">${fmtALL(price)} Lek / pllakë</div>
+        ${HIDE_PRICES ? '' : `<div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;">${fmtALL(price)} Lek / pllakë</div>`}
       </div>
     </button>`;
   }).join('');
@@ -10178,8 +10370,11 @@ function renderBlock(b) {
       <div style="display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap;">
         ${hasM2 ? `<div class="field" style="width:220px;flex:none;"><label>Kodi Bojës</label><input type="text" id="kodi-bojes-${b.id}" value="${escHtml(b.kodiBojes||'')}" oninput="handleKodiBojesChange(${b.id},this.value)" placeholder="Kodi…" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:8px 11px;font-family:'DM Mono',monospace;font-size:13px;width:100%;outline:none;"></div>` : ''}
         ${hasTenie ? (function(){
-          const tenies = getAllTenies();
-          if(tenies.length === 0) return '';
+          const _all = getAllTenies();
+          if(_all.length === 0) return '';
+          // an order made before the switch keeps showing its own tenie
+          const _cur = getTenieById(b.tenieId);
+          const tenies = (_cur && !_all.some(t => t.id === _cur.id)) ? [_cur, ..._all] : _all;
           return `<div class="field" style="width:240px;flex:none;"><label>Lloji Tenies</label>
             <select id="tenie-id-${b.id}" onchange="handleTenieIdChange(${b.id},this.value)" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:8px 11px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);width:100%;outline:none;cursor:pointer;appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239097b0' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 11px center;padding-right:30px;">
               ${tenies.map(t => `<option value="${escHtml(t.id)}" ${t.id===b.tenieId?'selected':''}>${escHtml(t.description)}</option>`).join('')}
@@ -12839,9 +13034,10 @@ function _injectCodesIntoTxt(content, block, importQueue) {
   let materialText = '';
   try {
     const P = (typeof loadPrices === 'function') ? loadPrices() : null;
-    const mat = P && (P.materials || []).find(m => m.id === block.materialId);
+    // getMaterialById / getFormatById also find orders made before the switch to Bilanc's articles
+    const mat = P && (typeof getMaterialById === 'function' ? getMaterialById(block.materialId) : (P.materials || []).find(m => m.id === block.materialId));
     if (mat) {
-      const fmt = (P.formats || []).find(f => f.id === block.formatId);
+      const fmt = typeof getFormatById === 'function' ? getFormatById(block.formatId) : (P.formats || []).find(f => f.id === block.formatId);
       const thk = fmt ? (' ' + fmt.thickness + 'mm') : '';
       materialText = (mat.description || '') + thk;
     }

@@ -643,3 +643,15 @@ Every saved order is billed in **Inco Bilanc** (the accounting app, Firebase pro
   Saving the order again updates them, creates newly needed ones and removes ones no longer needed. Fiscalized or paid invoices, and invoices edited by hand in Bilanc (`serviceEdited`), are left alone; the workshop is warned once per order change. An invoice deleted by hand in Bilanc is never recreated. Deleting the order removes the rest.
 - **No configuration:** warehouses are found by name. Orders dated before 2026-10-09 (`SERVICE_START_DATE` in the bridge) are not billed, because they were invoiced by hand.
 - **Never blocks a save:** the call runs after the save. A failure shows a toast, and saving again retries. Partners get no toasts.
+
+## 19. Materials from Bilanc, no prices (added 2026-10-09)
+
+- **Catalog:** materials, formats and tenie variants are read from the **articles of Inco Bilanc**, not from `konfig`. The block is "MATERIALS FROM INCO BILANC" (`applyBilancCatalog`, `buildCatalogFromBilancItems`, `_bcSection`, `_bcParseFormat`). It runs at boot right after `konfig` (step 1.5), through a second, read-only Firebase app named `bilanc`.
+  - Section from the article name, checked in this order: tenie / tenije / bordim → Tenie; fiber; betoform; mdf; mel. "Sherbim …" articles are skipped.
+  - Format from the dimensions in the name (`3660 x 1830 x 18`, `3660*1830*18`, `3660 1830 18`). Centimetres are read as mm; the thickness defaults to 18.
+  - Articles with the same section and the same name without the dimensions form one material. Each article is one format.
+  - Ids: `bm_<section>_<name>`, `bf_<L>x<W>x<T>`; tenie = the article id. `material.items[formatId]` is the article. A block stores `bilancItemId`; `_materialOfBlock` resolves through it if an article is renamed.
+- **Fallback:** the konfig catalog stays in `_LEGACY_CATALOG`, and `getMaterialById` / `getFormatById` / `getTenieById` fall back to it, so old orders keep working. It was tested on all 380 live sections: none changed material, format, tenie or stages. If Bilanc can't be read, the app keeps the konfig catalog and shows a toast.
+- **Konfigurim:** the material tabs are read-only (`body.catalog-bilanc` CSS; `savePrices` refuses), with a note and a link to Bilanc → Artikujt. Workers are unchanged.
+- **Prices hidden:** `HIDE_PRICES = true` plus `<body class="hide-prices">` hide the section price inputs, the price strip, the grand total, the frezim price, the list total and the invoice buttons. Invoice prices come from Bilanc's articles (see §18; the payload sends `bilancItemId`, `bilancTenieId` and `frezimPieces`).
+- **WinCut labels:** `_injectCodesIntoTxt` resolves the material text through `getMaterialById` / `getFormatById` when they exist, so old orders keep their label text. `_test-dati-format.js` passes. The optimizer is untouched.
