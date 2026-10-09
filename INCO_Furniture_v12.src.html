@@ -123,6 +123,7 @@ body:not([data-role="admin"]) .admin-only {
 /* Partner read-only mode on the order Kanban board: drag handles are
    hidden, dragstart/dragover are skipped in JS via _ROLE.role === 'partner'.
    This rule kills the grab cursor so it's visually obvious. */
+body[data-role="partner"] .bilanc-project-field { display: none !important; }
 body[data-role="partner"] .kb-card {
   cursor: pointer;     /* clicking still opens the read-only detail */
 }
@@ -3485,6 +3486,12 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
             style="background:var(--surface3,#eef0f4);border:1px solid var(--border);border-radius:7px;color:var(--text2,#5a5f73);cursor:default;"></div>
           <div class="field"><label>Shënim Klienti</label><input id="klient-note" type="text" maxlength="140" placeholder="Shënim (opsional)"
             style="border-radius:7px;"></div>
+          <div class="field bilanc-project-field"><label>Projekti (Bilanc)</label>
+            <select id="bilanc-project" style="border-radius:7px;border:1px solid var(--border);padding:8px 10px;background:#fff;font-size:13px;width:100%;">
+              <option value="">— Pa projekt —</option>
+            </select>
+            <div id="bilanc-project-hint" style="font-size:11px;color:var(--muted);margin-top:3px;"></div>
+          </div>
           <div class="field"><label>Data</label><input id="data" type="date" readonly
             style="background:var(--surface3,#eef0f4);border:1px solid var(--border);border-radius:7px;color:var(--text2,#5a5f73);cursor:default;"></div>
         </div>
@@ -4225,7 +4232,10 @@ function fullFingerprint(order) {
   // value at their call time.
   const _noteFp = (typeof document !== 'undefined' && document.getElementById('klient-note'))
     ? (document.getElementById('klient-note').value || '').trim() : '';
-  return JSON.stringify({ note: _noteFp, blocks });
+  // The Bilanc project chosen in the header (same DOM-read approach as the note).
+  const _projFp = (typeof document !== 'undefined' && document.getElementById('bilanc-project'))
+    ? (document.getElementById('bilanc-project').value || '') : '';
+  return JSON.stringify({ note: _noteFp, project: _projFp, blocks });
 }
 
 // True iff the current `blocks` differ from the baseline captured on
@@ -5624,6 +5634,7 @@ function _bilancOrderPayload(order) {
   const k = (loadKlientet() || []).find(x => x.id === order.klient_id) || {};
   return {
     v: 1, orderId: order.id, fatura: fat, date: order.data || '', total: Number(order.total) || 0, note: order.klientNote || '',
+    projectId: order.bilancProjectId || '',
     client: { id: order.klient_id || '', name: k.emri || order.klient_emri || '', phone: k.telefoni || '', email: k.email || '', address: k.adresa || '' },
     sections, user: _bilancUser(),
   };
@@ -5657,6 +5668,90 @@ async function bilancSyncOrder(order) {
     if (!quiet) _bilancToast('Bilanc: faturat nuk u krijuan (' + (e.message || 'rrjeti') + '). Ruaj porosinë sërish për ta provuar.', 'err', 9000);
     return null;
   }
+}
+
+// ── Projects of Inco Bilanc ──────────────────────────────────────
+// An order can be assigned (optionally) to one of its client's projects in
+// Bilanc. The choice is stored on the order (bilancProjectId + a name
+// snapshot) and every Bilanc invoice of the order is put on that project.
+// Read-only here: projects are created in Bilanc → Projektet. The client is
+// matched the way the Bilanc invoices match it (the remembered link, else the
+// same name). Partners don't see the field and keep the stored choice.
+let _bilancProjCache = { at: 0, data: null };
+window._editingBilancProject = { id: '', name: '' };
+
+async function _bilancProjectsData(fresh) {
+  if (!fresh && _bilancProjCache.data && Date.now() - _bilancProjCache.at < 60 * 1000) return _bilancProjCache.data;
+  const app = (firebase.apps || []).find(a => a.name === 'bilanc') || firebase.initializeApp(BILANC_FIREBASE_CONFIG, 'bilanc');
+  const co = app.firestore().collection('companies').doc(BILANC_COMPANY_ID);
+  const [cSnap, pSnap, prSnap] = await Promise.all([co.get(), co.collection('partners').get(), co.collection('projects').get()]);
+  const st = (cSnap.exists && cSnap.data().settings) || {};
+  const data = {
+    links: (st.service && st.service.clients) || {},
+    partners: pSnap.docs.map(d => ({ ...d.data(), id: d.id })),
+    projects: prSnap.docs.map(d => ({ ...d.data(), id: d.id })),
+  };
+  _bilancProjCache = { at: Date.now(), data };
+  return data;
+}
+
+// The Bilanc client of a service client: the link the invoices use, else the same name.
+function _bilancPartnerIdOf(data, klientId, klientName) {
+  const link = klientId && data.links[klientId];
+  if (link && data.partners.some(p => p.id === link.partnerId)) return link.partnerId;
+  const n = _bcNorm(klientName);
+  const p = n && data.partners.find(x => x.type !== 'supplier' && _bcNorm(x.name) === n);
+  return p ? p.id : '';
+}
+
+function _bilancProjectLabel(p) { return (p.code ? p.code + ' · ' : '') + (p.name || ''); }
+
+// Show the stored choice at once, so nothing is lost while Bilanc loads.
+function _bilancSetProjectField(id, name) {
+  window._editingBilancProject = { id: id || '', name: name || '' };
+  const sel = document.getElementById('bilanc-project');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— Pa projekt —</option>' + (id ? '<option value="' + escHtml(id) + '">' + escHtml(name || id) + '</option>' : '');
+  sel.value = id || '';
+  const hint = document.getElementById('bilanc-project-hint');
+  if (hint) hint.textContent = '';
+}
+
+// Fill the list with the client's projects (open ones, plus the one already chosen).
+async function bilancLoadProjectSelect() {
+  const sel = document.getElementById('bilanc-project');
+  const hint = document.getElementById('bilanc-project-hint');
+  if (!sel || isPartner()) return;
+  const klientId = window._editingKlientId || '';
+  const klientName = (document.getElementById('klienti') || {}).value || '';
+  try {
+    const data = await _bilancProjectsData(true);
+    if ((window._editingKlientId || '') !== klientId) return;   // another order was opened meanwhile
+    const keep = sel.value;
+    const partnerId = _bilancPartnerIdOf(data, klientId, klientName);
+    const list = data.projects
+      .filter(p => partnerId && p.clientId === partnerId && (p.status !== 'closed' || p.id === keep))
+      .sort((a, b) => _bilancProjectLabel(a).localeCompare(_bilancProjectLabel(b), 'sq'));
+    const cur = window._editingBilancProject || {};
+    const opts = list.map(p => '<option value="' + escHtml(p.id) + '">' + escHtml(_bilancProjectLabel(p)) + (p.status === 'closed' ? ' (mbyllur)' : '') + '</option>');
+    if (keep && !list.some(p => p.id === keep)) opts.unshift('<option value="' + escHtml(keep) + '">' + escHtml((cur.id === keep && cur.name) || keep) + ' (nuk gjendet në Bilanc)</option>');
+    sel.innerHTML = '<option value="">— Pa projekt —</option>' + opts.join('');
+    sel.value = keep;
+    if (hint) hint.textContent = !partnerId ? 'Klienti nuk është ende në Bilanc' : (list.length ? '' : 'Ky klient nuk ka projekte në Bilanc');
+  } catch (e) {
+    console.warn('[INCO] Bilanc projects not loaded:', e);
+    if (hint) hint.textContent = 'Projektet e Bilanc nuk u ngarkuan';
+  }
+}
+
+// The choice to save (partners keep the order's stored project).
+function _bilancSelectedProject() {
+  const sel = document.getElementById('bilanc-project');
+  if (!sel || isPartner()) return window._editingBilancProject || { id: '', name: '' };
+  const id = sel.value || '';
+  const opt = sel.options[sel.selectedIndex];
+  const name = id && opt ? opt.textContent.replace(/ \((mbyllur|nuk gjendet në Bilanc)\)$/, '') : '';
+  return { id, name };
 }
 
 async function bilancRemoveOrder(id) {
@@ -6108,6 +6203,9 @@ async function openOrder(id, opts) {
   document.getElementById('data').value = order.data || '';
   const _noteEl = document.getElementById('klient-note');
   if (_noteEl) _noteEl.value = order.klientNote || '';
+  // Bilanc project: shown at once from the order, then the client's list loads in the background.
+  _bilancSetProjectField(order.bilancProjectId || '', order.bilancProjectName || '');
+  bilancLoadProjectSelect();
   document.getElementById('order-breadcrumb').textContent = `${liveKlientName} — #${displayFatura}`;
   // renderBlocks (called above) reads the fatura from the input to build the
   // per-block sub-number badge "#<fatura>-N", but the input was still empty
@@ -6230,6 +6328,8 @@ async function startNewOrder() {
   document.getElementById('nr-fatura').value = '';                // shown blank until save
   document.getElementById('nr-fatura').placeholder = 'pas ruajtjes';
   document.getElementById('order-breadcrumb').textContent = `Porosi e Re — ${klientEmri}`;
+  _bilancSetProjectField('', '');
+  bilancLoadProjectSelect();
   // Baseline = empty form; any block/row added counts as unsaved change.
   window._orderBaselineFingerprint = fullFingerprint({ blocks: [] });
   applyDetailToolbarVisibility();  // hide delete button (no saved id yet)
@@ -6258,6 +6358,7 @@ function resetOrderForm() {
   document.getElementById('klienti').value = '';
   const _noteReset = document.getElementById('klient-note');
   if (_noteReset) _noteReset.value = '';
+  _bilancSetProjectField('', '');
   document.getElementById('data').value = new Date().toISOString().split('T')[0];
 }
 
@@ -6430,9 +6531,13 @@ async function _saveOrderToStorageInner() {
   // On edit we PRESERVE whatever createdBy was already on the order — the
   // partner ownership shouldn't flip just because the admin opened and
   // re-saved a partner's order.
+  const _bilancProj = _bilancSelectedProject();
   const orderData = {
     klient_emri: klientName,
     klient_id:   klientId,
+    // Optional Inco Bilanc project of the client: the order's invoices are put on it.
+    bilancProjectId:   _bilancProj.id,
+    bilancProjectName: _bilancProj.name,
     fatura,                        // overridden for new orders below
     data,
     // Free-text per-order customer note (shown on the order form + PDF header).
