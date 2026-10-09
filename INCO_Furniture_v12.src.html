@@ -3048,7 +3048,6 @@ body.hide-prices .price-strip,
 body.hide-prices #grand-total-bar,
 body.hide-prices .col-totali,
 body.hide-prices .price-inputs,
-body.hide-prices .frezim-price-wrap,
 body.hide-prices #btn-shkarko-fatura,
 body.hide-prices #btn-printo-fatura { display: none !important; }
 /* Materials come from the articles of Inco Bilanc: Konfigurim shows them
@@ -3818,8 +3817,8 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
 
 // Global price-display gate. Prices are OFF: prices and invoices belong to
 // Inco Bilanc now (the order is billed there from Bilanc's articles, see BILANC
-// LINK). The section price inputs, totals, the frezim price and the invoice
-// buttons are hidden. Flip to `false` (and remove the `hide-prices` class
+// LINK). The section price inputs, totals and the invoice buttons are hidden;
+// the per-row frezim price stays (it is billed in Bilanc as a total per section). Flip to `false` (and remove the `hide-prices` class
 // from <body>) to show them again.
 const HIDE_PRICES = true;
 
