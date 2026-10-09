@@ -5524,12 +5524,14 @@ async function deleteOrderById(id) {
 // After an order is saved, its billing (boards, cutting, edge banding,
 // painting, milling: the same lines as the invoice PDF, same sibling and
 // "Pa çmim" rules as calcBlockPrice) is sent to Inco Bilanc through the
-// bridge script Bilanc publishes. Bilanc creates or updates ONE sales invoice
-// per order, with its own numbering, stock and history; deleting the order
-// removes that invoice when it is not paid or fiscalized.
+// bridge script Bilanc publishes. Bilanc bills it with up to THREE sales
+// invoices carrying the order's reference, one per department (boards from
+// Magazina Qendrore; cutting + banding + milling from Reparti makinerive;
+// painting from Reparti i lyerjes), only where there is something to bill,
+// with its own numbering, stock and history. Saving again updates them;
+// deleting the order removes them unless paid or fiscalized.
 // It runs AFTER the save and never blocks it: a failure only shows a toast,
-// and saving the order again retries. Read-only: it never writes to this
-// app's database. Switched on/off in Bilanc → Konfigurime → Service.
+// and saving the order again retries. It never writes to this app's database.
 const BILANC_BRIDGE_URL = 'https://incobilanc.web.app/service-bridge.js';
 let _bilancBridgeLoading = null;
 
@@ -5609,23 +5611,25 @@ function _bilancToast(msg, type, ms) {
   if (t && ms) { clearTimeout(t._t); t._t = setTimeout(() => t.className = '', ms); }
 }
 
+// The bridge returns a ready summary (e.g. 'Service #130: u krijuan faturat nr. 13 (Pllakat), 14 (…)')
+// plus warnings (stock, paid or fiscalized invoices left unchanged).
+function _bilancToastResult(r) {
+  const warn = (r.warnings || []).join(' ');
+  const msg = [r.summary, warn ? '⚠ ' + warn : ''].filter(Boolean).join(' · ');
+  if (msg) _bilancToast('Bilanc · ' + msg, warn ? '' : 'ok', warn ? 9000 : 5000);
+}
+
 async function bilancSyncOrder(order) {
   if (!order || order.id == null) return null;
   const quiet = isPartner();   // partners don't see the accounting side
   try {
     const bridge = await _bilancLoadBridge();
     const r = await bridge.syncServiceOrder(_bilancOrderPayload(order));
-    if (!quiet && r) {
-      const warn = (r.warnings || []).length ? ' · ⚠ ' + r.warnings.join(' ') : '';
-      if (r.status === 'created') _bilancToast(`Bilanc: u krijua Fatura shitje nr. ${r.number}${warn}`, warn ? '' : 'ok', warn ? 9000 : 4000);
-      else if (r.status === 'updated') _bilancToast(`Bilanc: Fatura shitje nr. ${r.number} u përditësua${warn}`, warn ? '' : 'ok', warn ? 9000 : 4000);
-      else if (r.status === 'locked' || r.status === 'skipped') _bilancToast('Bilanc: ' + (r.warnings || []).join(' '), 'err', 9000);
-      // 'unchanged', 'before-start' and 'disabled' stay silent
-    }
+    if (!quiet && r) _bilancToastResult(r);   // silent when nothing changed
     return r;
   } catch (e) {
     console.error('[INCO] Bilanc invoice failed:', e);
-    if (!quiet) _bilancToast('Bilanc: fatura nuk u krijua (' + (e.message || 'rrjeti') + '). Ruaj porosinë sërish për ta provuar.', 'err', 9000);
+    if (!quiet) _bilancToast('Bilanc: faturat nuk u krijuan (' + (e.message || 'rrjeti') + '). Ruaj porosinë sërish për ta provuar.', 'err', 9000);
     return null;
   }
 }
@@ -5635,14 +5639,11 @@ async function bilancRemoveOrder(id) {
   try {
     const bridge = await _bilancLoadBridge();
     const r = await bridge.removeServiceOrder(id, { user: _bilancUser() });
-    if (!quiet && r) {
-      if (r.status === 'deleted') _bilancToast(`Bilanc: Fatura shitje nr. ${r.number} u fshi bashkë me porosinë`, 'ok', 4000);
-      else if (r.status === 'kept') _bilancToast('Bilanc: ' + (r.warnings || []).join(' '), 'err', 9000);
-    }
+    if (!quiet && r) _bilancToastResult(r);
     return r;
   } catch (e) {
     console.error('[INCO] Bilanc invoice delete failed:', e);
-    if (!quiet) _bilancToast('Bilanc: fatura e porosisë nuk u fshi (' + (e.message || 'rrjeti') + '). Fshije me dorë te Bilanc.', 'err', 9000);
+    if (!quiet) _bilancToast('Bilanc: faturat e porosisë nuk u fshinë (' + (e.message || 'rrjeti') + '). Fshiji me dorë te Bilanc.', 'err', 9000);
     return null;
   }
 }

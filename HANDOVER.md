@@ -635,6 +635,11 @@ Every saved order is billed in **Inco Bilanc** (the accounting app, Firebase pro
 - **Where:** one block in `INCO_Furniture_v12.src.html` named "BILANC LINK", just before the Koshi section. Three one-line hooks call it: `persistOrder` (after a successful save) and `restoreTrashedOrder` call `bilancSyncOrder(order)`, and `deleteOrderById` calls `bilancRemoveOrder(id)`. Nothing else changed. The optimizer engine is untouched and must stay that way.
 - **How:** `_bilancLoadBridge` loads `https://incobilanc.web.app/service-bridge.js`, a script built from Bilanc's own code (`src/integrations/serviceBridge.js`). It writes only to the Bilanc database, never to this app's database.
 - **Payload:** `_bilancOrderPayload(order)` works on a copy of the saved order. It uses `calcBlock` plus the same sibling, "Pa çmim" and frezim rules as `calcBlockPrice` / `buildInvoicePDF`, with the sibling rule applied within the order itself. On all 222 live orders the Bilanc total matched `calcBlockPrice` within 1.7 Lek (quantities carry 3 decimals).
-- **Bilanc side:** one Faturë shitje per order, id `svc-<order id>`. Saving the order again updates the same invoice. Fiscalized or paid invoices are left alone. Deleting the order removes the invoice only if it is unpaid.
-- **Switch:** on/off, the boards warehouse and a start date (older orders are skipped) are set in Bilanc → Konfigurime → Service. While the link is off, the bridge only reads that setting.
+- **Bilanc side:** up to three Faturë shitje per order, one per department, all with the order's reference (`serviceFatura`). Each is created only when its department has something to bill:
+  - `svc-<id>-boards`: the boards, from Magazina Qendrore (stock leaves there)
+  - `svc-<id>-machining`: cutting, Bordim and Frezim, from Reparti makinerive
+  - `svc-<id>-painting`: m² of painting, from Reparti i lyerjes
+
+  Saving the order again updates them, creates newly needed ones and removes ones no longer needed. Fiscalized or paid invoices are left alone. Deleting the order removes the rest.
+- **No configuration:** warehouses are found by name. Orders dated before 2026-10-09 (`SERVICE_START_DATE` in the bridge) are not billed, because they were invoiced by hand.
 - **Never blocks a save:** the call runs after the save. A failure shows a toast, and saving again retries. Partners get no toasts.
