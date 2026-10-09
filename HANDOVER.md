@@ -625,3 +625,16 @@ The browser preview can't log in on its own (it needs a real user), so features 
 | 2026-08-17 | | Per-panel "Pa çmim" (`noPrice`), wider form, bigger invoice, collapsed-header badge |
 | 2026-08-11 | `551f7e0` | Per-section pricing and invoice |
 | earlier | | WinCut label format work, PDF import, partner roles, local optimizer worker (see `git log`) |
+
+---
+
+## 18. Bilanc link (added 2026-10-09)
+
+Every saved order is billed in **Inco Bilanc** (the accounting app, Firebase project `incobilanc`, repo `github.com/albanelezi/incobilanc`).
+
+- **Where:** one block in `INCO_Furniture_v12.src.html` named "BILANC LINK", just before the Koshi section. Three one-line hooks call it: `persistOrder` (after a successful save) and `restoreTrashedOrder` call `bilancSyncOrder(order)`, and `deleteOrderById` calls `bilancRemoveOrder(id)`. Nothing else changed. The optimizer engine is untouched and must stay that way.
+- **How:** `_bilancLoadBridge` loads `https://incobilanc.web.app/service-bridge.js`, a script built from Bilanc's own code (`src/integrations/serviceBridge.js`). It writes only to the Bilanc database, never to this app's database.
+- **Payload:** `_bilancOrderPayload(order)` works on a copy of the saved order. It uses `calcBlock` plus the same sibling, "Pa çmim" and frezim rules as `calcBlockPrice` / `buildInvoicePDF`, with the sibling rule applied within the order itself. On all 222 live orders the Bilanc total matched `calcBlockPrice` within 1.7 Lek (quantities carry 3 decimals).
+- **Bilanc side:** one Faturë shitje per order, id `svc-<order id>`. Saving the order again updates the same invoice. Fiscalized or paid invoices are left alone. Deleting the order removes the invoice only if it is unpaid.
+- **Switch:** on/off, the boards warehouse and a start date (older orders are skipped) are set in Bilanc → Konfigurime → Service. While the link is off, the bridge only reads that setting.
+- **Never blocks a save:** the call runs after the save. A failure shows a toast, and saving again retries. Partners get no toasts.

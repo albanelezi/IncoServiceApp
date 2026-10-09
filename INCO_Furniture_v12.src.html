@@ -5457,6 +5457,8 @@ async function persistOrder(order) {
     const idx = _ORDERS_CACHE.findIndex(o => o.id === order.id);
     if(idx >= 0) _ORDERS_CACHE[idx] = _summaryOfOrder(order);
     else _ORDERS_CACHE.push(_summaryOfOrder(order));
+    // Bill the order in Inco Bilanc (after the save, never blocking it).
+    bilancSyncOrder(order);
     return true;
   } catch(e) {
     console.error('[INCO] order save failed:', e);
@@ -5505,11 +5507,143 @@ async function deleteOrderById(id) {
     try { await _ptCloseOpenSessionsForOrder(idStr, 'order-deleted'); }
     catch (e) { console.warn('[pt] closing timers of deleted order failed:', e); }
 
+    // Remove its sales invoice from Inco Bilanc (kept there if paid or fiscalized).
+    bilancRemoveOrder(id);
+
     return true;
   } catch(e) {
     console.error('[INCO] order delete failed:', e);
     shellToast('Gabim: fshirja dështoi (' + (e.message||'rrjeti') + ')');
     return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BILANC LINK — every saved order becomes a Faturë shitje in Inco Bilanc
+// ═══════════════════════════════════════════════════════════════
+// After an order is saved, its billing (boards, cutting, edge banding,
+// painting, milling: the same lines as the invoice PDF, same sibling and
+// "Pa çmim" rules as calcBlockPrice) is sent to Inco Bilanc through the
+// bridge script Bilanc publishes. Bilanc creates or updates ONE sales invoice
+// per order, with its own numbering, stock and history; deleting the order
+// removes that invoice when it is not paid or fiscalized.
+// It runs AFTER the save and never blocks it: a failure only shows a toast,
+// and saving the order again retries. Read-only: it never writes to this
+// app's database. Switched on/off in Bilanc → Konfigurime → Service.
+const BILANC_BRIDGE_URL = 'https://incobilanc.web.app/service-bridge.js';
+let _bilancBridgeLoading = null;
+
+function _bilancLoadBridge() {
+  if (window.IncoBilancBridge && window.IncoBilancBridge.syncServiceOrder) return Promise.resolve(window.IncoBilancBridge);
+  if (_bilancBridgeLoading) return _bilancBridgeLoading;
+  _bilancBridgeLoading = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = BILANC_BRIDGE_URL + '?v=' + Date.now();
+    s.async = true;
+    const timer = setTimeout(() => reject(new Error('Bilanc nuk u arrit')), 20000);
+    s.onload = () => { clearTimeout(timer); window.IncoBilancBridge ? resolve(window.IncoBilancBridge) : reject(new Error('lidhja me Bilanc nuk u ngarkua')); };
+    s.onerror = () => { clearTimeout(timer); reject(new Error('lidhja me Bilanc nuk u ngarkua')); };
+    document.head.appendChild(s);
+  }).catch(e => {
+    _bilancBridgeLoading = null;   // the next save tries again
+    document.querySelectorAll('script[src^="' + BILANC_BRIDGE_URL + '"]').forEach(x => x.remove());
+    throw e;
+  });
+  return _bilancBridgeLoading;
+}
+
+function _bilancUser() {
+  try { return (auth && auth.currentUser && auth.currentUser.email) || ''; } catch (_) { return ''; }
+}
+
+// What Bilanc needs to bill one order. Works on a COPY of the saved order
+// (calcBlock writes totals onto the block) and applies the sibling rule
+// within the order itself, so it also works for orders not open in the editor.
+function _bilancOrderPayload(order) {
+  const fat = String(order.fatura || order.id);
+  const blocksCopy = JSON.parse(JSON.stringify(order.blocks || []));
+  const groupKey = b => `${b.materialId || ''}|${b.formatId || ''}`;
+  const primaryOf = new Map();
+  for (const b of blocksCopy) if (!primaryOf.has(groupKey(b))) primaryOf.set(groupKey(b), b.id);
+  const r3 = n => Math.round((Number(n) || 0) * 1000) / 1000;
+  const sections = blocksCopy.map((b, i) => {
+    if (!Array.isArray(b.rows)) b.rows = [];
+    if (!b.cfg) b.cfg = {};
+    calcBlock(b);
+    const mat = getMaterialById(b.materialId) || {};
+    const fmt = getFormatById(b.formatId) || {};
+    const panels = Array.isArray(b.panels) ? b.panels : [];
+    const billed = panels.filter(p => p && !p.noPrice).length;
+    const primary = primaryOf.get(groupKey(b)) === b.id;
+    const frezim = {};
+    if (blockHasFrezim(b)) for (const r of b.rows) {
+      if (!r.frezim) continue;
+      const pr = parseFloat(r.frezimPrice) || 0;
+      frezim[pr] = (frezim[pr] || 0) + (parseInt(r.s) || 0);
+    }
+    return {
+      blockId: b.id, no: i + 1, label: `#${fat}-${i + 1}`, name: b.name || '',
+      materialId: b.materialId || '', formatId: b.formatId || '',
+      material: { description: mat.description || '', type: mat.type || '' },
+      format: { lung: Number(fmt.lung || b.cfg.lung) || 0, larg: Number(fmt.larg || b.cfg.larg) || 0, thickness: Number(fmt.thickness || b.cfg.spes) || 0 },
+      boards: primary ? billed : 0, boardPrice: parseFloat(b.priceP) || 0,
+      cutQty: primary ? billed : 0, cutPrice: parseFloat(b.priceCut) || 0,
+      bandMl: blockHasTenie(b) ? r3(b.totML) : 0, bandPrice: parseFloat(b.priceBoard) || 0,
+      paintM2: blockHasM2(b) ? r3((b.totM2sip || 0) + (b.totM2ans || 0)) : 0, paintPrice: parseFloat(b.pricePaint) || 0,
+      frezim: Object.keys(frezim).map(p => ({ price: Number(p), qty: frezim[p] })).filter(f => f.qty > 0),
+      remnantBoards: primary ? panels.length - billed : 0,
+    };
+  });
+  const k = (loadKlientet() || []).find(x => x.id === order.klient_id) || {};
+  return {
+    v: 1, orderId: order.id, fatura: fat, date: order.data || '', total: Number(order.total) || 0, note: order.klientNote || '',
+    client: { id: order.klient_id || '', name: k.emri || order.klient_emri || '', phone: k.telefoni || '', email: k.email || '', address: k.adresa || '' },
+    sections, user: _bilancUser(),
+  };
+}
+
+// Longer-lived toast for Bilanc messages (warnings need time to be read).
+function _bilancToast(msg, type, ms) {
+  shellToast(msg, type);
+  const t = document.getElementById('shell-toast');
+  if (t && ms) { clearTimeout(t._t); t._t = setTimeout(() => t.className = '', ms); }
+}
+
+async function bilancSyncOrder(order) {
+  if (!order || order.id == null) return null;
+  const quiet = isPartner();   // partners don't see the accounting side
+  try {
+    const bridge = await _bilancLoadBridge();
+    const r = await bridge.syncServiceOrder(_bilancOrderPayload(order));
+    if (!quiet && r) {
+      const warn = (r.warnings || []).length ? ' · ⚠ ' + r.warnings.join(' ') : '';
+      if (r.status === 'created') _bilancToast(`Bilanc: u krijua Fatura shitje nr. ${r.number}${warn}`, warn ? '' : 'ok', warn ? 9000 : 4000);
+      else if (r.status === 'updated') _bilancToast(`Bilanc: Fatura shitje nr. ${r.number} u përditësua${warn}`, warn ? '' : 'ok', warn ? 9000 : 4000);
+      else if (r.status === 'locked' || r.status === 'skipped') _bilancToast('Bilanc: ' + (r.warnings || []).join(' '), 'err', 9000);
+      // 'unchanged', 'before-start' and 'disabled' stay silent
+    }
+    return r;
+  } catch (e) {
+    console.error('[INCO] Bilanc invoice failed:', e);
+    if (!quiet) _bilancToast('Bilanc: fatura nuk u krijua (' + (e.message || 'rrjeti') + '). Ruaj porosinë sërish për ta provuar.', 'err', 9000);
+    return null;
+  }
+}
+
+async function bilancRemoveOrder(id) {
+  const quiet = isPartner();
+  try {
+    const bridge = await _bilancLoadBridge();
+    const r = await bridge.removeServiceOrder(id, { user: _bilancUser() });
+    if (!quiet && r) {
+      if (r.status === 'deleted') _bilancToast(`Bilanc: Fatura shitje nr. ${r.number} u fshi bashkë me porosinë`, 'ok', 4000);
+      else if (r.status === 'kept') _bilancToast('Bilanc: ' + (r.warnings || []).join(' '), 'err', 9000);
+    }
+    return r;
+  } catch (e) {
+    console.error('[INCO] Bilanc invoice delete failed:', e);
+    if (!quiet) _bilancToast('Bilanc: fatura e porosisë nuk u fshi (' + (e.message || 'rrjeti') + '). Fshije me dorë te Bilanc.', 'err', 9000);
+    return null;
   }
 }
 
@@ -5633,6 +5767,7 @@ async function restoreTrashedOrder(key) {
     _ORDERS_CACHE.push(_summaryOfOrder(order));
     if (t.kanban) _KANBAN_CACHE[docId] = t.kanban;
     shellToast(`Porosia #${order.fatura || docId} u rikthye ✓`, 'ok');
+    bilancSyncOrder(order);   // bill it again in Inco Bilanc
     renderAllOrders();
     openTrashModal();   // re-render the list
   } catch (e) {
