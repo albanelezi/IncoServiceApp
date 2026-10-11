@@ -229,11 +229,10 @@ Read by everyone; written by `savePrices` (line 7158) in **one transaction** wit
 
 ### 7.2 `klientet/{klt_…}` (63 docs)
 
-`{ id, emri (name), telefoni, email, adresa, isPartner: bool, createdBy: 'admin' | <partner klient id> }`.
+`{ id, emri (name), telefoni, email, adresa, isPartner: bool, createdBy: 'admin' | <partner klient id>, bilancId? }`.
 
-- Written by `saveKlient` / `upsertKlient` (full `set`).
-- Names are unique (case- and whitespace-insensitive check in the UI).
-- `delKlient` cascades: it moves every order of the client to the trash, deletes their `porosite`, `porosite_index` and `kanban` docs, deletes `counters/fatura_<id>`, then the client.
+- **Since 2026-10-11 the client list is Inco Bilanc's (see §20).** These rows are kept as they are: old orders reference their ids, and partner logins live here. The app writes only `bilancId` (a link set by hand) and the partner flag/email of login rows (`_syncPartnerLogin`), which may create a login row under a Bilanc id.
+- Clients are never deleted here any more: the old `delKlient` cascade (it trashed every order of the client) was removed.
 
 ### 7.3 `porosite/{orderId}` (222 docs): the full order
 
@@ -320,7 +319,7 @@ Both are incremented in transactions. Fatura allocation also seeds from the high
 
 `{order: <full porosite doc>, kanban: <kanban doc>|null, deletedAt: ISO string, deletedBy: 'admin'|klientId}`
 
-- Written in the same batch as the delete (`deleteOrderById`, line 5474; `delKlient`).
+- Written in the same batch as the delete (`deleteOrderById`). The client cascade delete that also wrote here was removed on 2026-10-11.
 - The admin "🗑 Koshi" modal lists, restores (`restoreTrashedOrder`) and purges entries. Entries older than 30 days are auto-purged when the modal opens.
 - A restore re-creates `porosite`, `porosite_index` and `kanban`. If the id is taken it allocates a new one and bumps `counters/porosite`.
 
@@ -597,7 +596,7 @@ The browser preview can't log in on its own (it needs a real user), so features 
 | Area | Function (line) |
 |---|---|
 | Boot / auth / roles | `bootApp` 6712 · `resolveRole` 4330 · `applyRoleUi` 4585 · `goPage` 3935 · `doLogout` 6980 |
-| Clients | `bootLoadKlientet` 4649 · `upsertKlient` 4636 · `saveKlient` 4724 · `delKlient` 4820 · `_writePartnerIndex` 4691 · `_backfillPartnerIndex` 4711 |
+| Clients | since 2026-10-11 from Bilanc, see §20 (`bootLoadKlientet`, `saveKlient`, `_syncPartnerLogin`, `openKLinkModal`, `_writePartnerIndex`, `_backfillPartnerIndex`) |
 | Orders: data | `bootLoadOrders` 4959 · `loadFullOrder` 4975 · `allocateOrderId` 4982 · `allocateFaturaForKlient` 5002 · `_summaryOfOrder` 5034 · `stripTransientFromBlocks` 5110 · `persistOrder` 5424 · `deleteOrderById` 5474 |
 | Trash | `openTrashModal` 5533 · `restoreTrashedOrder` 5590 · `purgeTrashedOrder` 5644 |
 | Order editor | `openOrder` 5785 · `openNewOrderModal` 6034 · `saveOrderToStorage` 6211 · `addBlock` 8019 · `makeRow` 8373 · `syncBlockFromMaterialFormat` 7963 · `structuralFingerprint` 4104 · `fullFingerprint` 4147 |
@@ -617,6 +616,8 @@ The browser preview can't log in on its own (it needs a real user), so features 
 
 | Date | Commit | Change |
 |---|---|---|
+| 2026-10-11 | | Clients from Bilanc only; client cascade delete removed (§20) |
+| 2026-10-09 – 10-11 | | Bilanc link, materials from Bilanc, no prices, Inco Furniture projects (§18, §19) |
 | 2026-10-06 | `bf5ffd6` | Hosting stops publishing `.git/` and dot-folders |
 | 2026-10-06 | `6bf80b2` | Paint time tracking, workers, transactional workflow writes, ids never reused, version banner, rules: no hard delete of paint sessions |
 | 2026-10-06 | `d7dca1f` | Rules: allow `porosite_trash` (order deletion had been failing since 09-18) |
@@ -656,3 +657,38 @@ Every saved order is billed in **Inco Bilanc** (the accounting app, Firebase pro
 - **Prices hidden:** `HIDE_PRICES = true` plus `<body class="hide-prices">` hide the section price inputs, the price strip, the grand total, the list total and the invoice buttons. The **per-row frezim price stays visible**: Bilanc bills a section's milling as one line with the total value (qty 1, pieces in the description). Invoice prices come from Bilanc's articles (see §18; the payload sends `bilancItemId`, `bilancTenieId` and `frezimPieces`).
 - **WinCut labels:** `_injectCodesIntoTxt` resolves the material text through `getMaterialById` / `getFormatById` when they exist, so old orders keep their label text. `_test-dati-format.js` passes. The optimizer is untouched.
 - **Bilanc project (Inco Furniture orders only, required):** orders of "Inco Furniture" or "Inco - Furniture" (`_isIncoFurnitureName`) show a "Projekti (Bilanc)" select with all open Bilanc projects. Projects exist only for Inco Furniture. The order can't be saved without a project (`_bilancProjectOk`); orders dated before 2026-10-09 are exempt, and partners are never blocked. The choice is stored as `bilancProjectId` + `bilancProjectName`, counts in `fullFingerprint`, and is sent as `payload.projectId`. Bilanc then creates internal **project documents** (PROJECT_DOC), not sales invoices: no revenue, no client debt, stock moves as usual (Dr 331 / Cr 351). Other clients have no project.
+
+## 20. Clients from Bilanc (added 2026-10-11)
+
+**Inco Bilanc's clients are the only client list.** Bilanc's partners that are not suppliers are shown in Klientët, offered in the new-order picker, and used for every client name. The block is "CLIENTS FROM INCO BILANC" (`bootLoadKlientet`, `_loadBilancClientData`, `_buildKlientList`, `_rebuildKlientet`, `_refreshKlientet`, `klientOf`, `klientNameOf`, `_klientKey`, `_klientIds`). It reads Bilanc through the same read-only `bilanc` Firebase app as the materials.
+
+- **New orders** store the Bilanc client id in `klient_id`. The payload sends `client.id` = the Bilanc id and `client.serviceId` = the order's own `klient_id`. Bridge v4 matches by id first, never creates clients, and skips (with a warning) an order whose client is not in Bilanc.
+- **Old orders are never changed.** They keep their old `klt_…` ids. Each old client row is linked to a Bilanc client (`_KLIENT_ALIAS`), checked in this order:
+  1. `klientet/<id>.bilancId`, set by hand;
+  2. the link Bilanc remembered when it billed an order (`settings.service.clients`);
+  3. the same name (lowercase, accents and punctuation ignored, and only if exactly one Bilanc client has it).
+
+  Linked orders show the Bilanc name, count under the Bilanc client, filter under it in the orders list, and keep their stored `klient_id` when saved again.
+- **Old clients without a Bilanc client** (19 on 2026-10-11, e.g. "Erion Gjokeja" vs Bilanc "Erjon Gjokeja") stay listed with their orders, marked "Pa lidhje me Bilanc", after the Bilanc clients.
+  - Old clients with no orders are hidden.
+  - The admin can link them with "🔗 Lidh me Bilanc" (`openKLinkModal`): similar names are suggested and nothing is preselected. The link writes only `klientet/<old id>.bilancId`.
+  - "+ Krijo në Bilanc" creates the Bilanc client from the old row's details, then links it.
+  - These clients can't get new orders.
+- **Client form:** "Klient i Ri" / "Edito" save to Bilanc through the bridge (`saveServiceClient`), with unique names and Bilanc history marked "Service". A partner-created client gets `serviceCreatedBy` = the partner's id, so `_ownsKlient` still works. If Bilanc couldn't be loaded, the app falls back to its own list (as before) and the form is blocked until a reload (`_klientetEditable`).
+- **Deleting clients:** clients are deleted only in Bilanc. "Fshi" is gone from the folders. `delKlient`'s cascade (it moved all of a client's orders to the trash), `saveKlientet`, `upsertKlient` and the unused `saveOrders(list)` shim (it deleted every order missing from a list) were removed.
+- **Partner logins** stay in this app. `klientet` rows with `isPartner` + email, plus `partner_index`, are kept because the rules need them.
+  - `resolveRole`, `_backfillPartnerIndex` and the `_createdByName` helpers read `_SERVICE_KLIENTET`.
+  - The admin's "Partner" checkbox writes the client's existing login row (the linked old row), or a new row `klientet/<Bilanc id>` with `bilancId`, and keeps `partner_index` in step (`_syncPartnerLogin`).
+  - Alfons Mata's login is his old row, linked to his Bilanc client by name.
+- **Invoice numbers per client:** `allocateFaturaForKlient` reads the counters of all of a client's ids (its Bilanc id plus its linked old ids), continues from the highest number (or from the highest `fatura` among their orders), and moves all of those counters forward together. A client's numbers never restart when its id changes.
+- **Refresh:** opening Klientët or the new-order picker reads Bilanc again (at most every 20 s), so a client added in Bilanc shows up without a reload.
+- **Tests (read-only, live data, writes only recorded):** `clients_service.js` in the session scratchpad. 34 checks pass:
+  - all 220 orders show a name and are counted once;
+  - 143 orders of linked clients show the Bilanc name;
+  - the picker lists Bilanc clients only;
+  - partner login, numbering continuity and payload are correct;
+  - linking writes only `bilancId`;
+  - the Bilanc-down fallback works;
+  - no write touches orders, the index, kanban or the trash.
+
+  The bridge's own suite has 52 checks.

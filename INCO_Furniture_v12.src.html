@@ -3672,6 +3672,7 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
     <div class="mhead"><h2 id="km-title">Klient i Ri</h2><button class="mx" onclick="closeKModal()">✕</button></div>
     <div class="mbody">
       <div class="form-grid">
+        <div class="fg full" style="font-size:11px;color:var(--muted);line-height:1.4;">Klientët ruhen te Inco Bilanc: një listë e vetme për të dy programet.</div>
         <div class="fg full"><label>Emri *</label><input type="text" id="mk-emri" placeholder="Emri i plotë…"></div>
         <div class="fg"><label>Telefoni</label><input type="text" id="mk-tel" placeholder="+355…"></div>
         <div class="fg"><label>Email</label><input type="email" id="mk-email" placeholder="email@…"></div>
@@ -3690,7 +3691,29 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
     </div>
     <div class="mfoot">
       <button class="btn btn-ghost" onclick="closeKModal()">Anulo</button>
-      <button class="btn btn-green" onclick="saveKlient()">💾 &nbsp;Ruaj</button>
+      <button class="btn btn-green" id="mk-save-btn" onclick="saveKlient()">💾 &nbsp;Ruaj</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- MODAL: LIDH KLIENTIN E VJETËR ME KLIENTIN E BILANC               -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="overlay" id="kl-modal">
+  <div class="modal">
+    <div class="mhead"><h2>Lidh me klientin e Bilanc</h2><button class="mx" onclick="closeKLinkModal()">✕</button></div>
+    <div class="mbody">
+      <div id="kl-info" style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px;"></div>
+      <div class="form-grid">
+        <div class="fg full"><label>Klienti në Inco Bilanc</label>
+          <select id="kl-target" style="width:100%;padding:10px 12px;background:var(--page-bg);border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:13px;color:var(--text);outline:none;"></select>
+        </div>
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost" onclick="closeKLinkModal()">Anulo</button>
+      <button class="btn btn-blue" onclick="createBilancFromOld()" title="Krijon në Bilanc një klient me emrin dhe të dhënat e këtij klienti, pastaj e lidh">+ Krijo në Bilanc</button>
+      <button class="btn btn-green" onclick="saveKLink()">🔗 &nbsp;Lidh</button>
     </div>
   </div>
 </div>
@@ -3990,7 +4013,7 @@ function goPage(id) {
   document.querySelectorAll('.nav-btn[id]').forEach(b => b.classList.remove('active'));
   const map = { 'pg-klient':'nav-klient', 'pg-porosite':'nav-porosite', 'pg-cfg':'nav-cfg', 'pg-kanban':'nav-kanban' };
   if(map[id]) document.getElementById(map[id])?.classList.add('active');
-  if(id==='pg-klient')    renderKlientet();
+  if(id==='pg-klient')    { renderKlientet(); _refreshKlientet().then(changed => { if (changed) renderKlientet(); }); }
   if(id==='pg-porosite')  renderAllOrders();
   if(id==='pg-cfg')       { initKonfigDraft(); fillPriceFields(); }
   if(id==='pg-kanban')    {
@@ -4060,7 +4083,7 @@ function kanonName(s) {
 function findKlientByName(name, excludeId) {
   const k = kanonName(name);
   if(!k) return null;
-  return loadKlientet().find(x => x.id !== excludeId && kanonName(x.emri) === k) || null;
+  return loadKlientet().find(x => x.source !== 'old' && x.id !== excludeId && kanonName(x.emri) === k) || null;
 }
 
 // Returns existing material that matches identity dimensions, or null.
@@ -4367,13 +4390,13 @@ function resolveRole(email) {
     return true;
   }
   // Search the klient cache for a record marked isPartner whose email matches.
-  const partnerKlient = (_KLIENTET_CACHE || []).find(k =>
+  const partnerKlient = (_SERVICE_KLIENTET || []).find(k =>
     k && k.isPartner === true &&
     String(k.email || '').toLowerCase().trim() === lower);
   if (partnerKlient) {
     window._ROLE.role = 'partner';
     window._ROLE.partnerKlientId   = partnerKlient.id;
-    window._ROLE.partnerKlientName = partnerKlient.emri || '';
+    window._ROLE.partnerKlientName = klientNameOf(partnerKlient.id, partnerKlient.emri);
     return true;
   }
   return false;
@@ -4389,7 +4412,7 @@ function _ownsKlient(k) {
   if (!isPartner()) return false;
   if (!k) return false;
   // The partner can always see themselves in the list (their own klient row).
-  if (k.id === window._ROLE.partnerKlientId) return true;
+  if (k.id === window._ROLE.partnerKlientId || (k.oldIds || []).includes(window._ROLE.partnerKlientId)) return true;
   return k.createdBy === window._ROLE.partnerKlientId;
 }
 function _ownsOrder(o) {
@@ -4410,14 +4433,14 @@ function _ownsOrder(o) {
 //   4. unresolved → "—"
 function _createdByName(createdBy) {
   if (!createdBy || createdBy === 'admin') return 'Admin';
-  const cache = _KLIENTET_CACHE || [];
+  const cache = _SERVICE_KLIENTET || [];
   const k = cache.find(x => x.id === createdBy);
-  if (k) return k.emri || '—';
+  if (k) return klientNameOf(k.id, k.emri) || '—';
   if (typeof createdBy === 'string' && createdBy.includes('@')) {
     const lower = createdBy.toLowerCase().trim();
     const kByEmail = cache.find(x =>
       String(x.email || '').toLowerCase().trim() === lower);
-    if (kByEmail) return kByEmail.emri || '—';
+    if (kByEmail) return klientNameOf(kByEmail.id, kByEmail.emri) || '—';
   }
   return '—';
 }
@@ -4429,7 +4452,7 @@ function _createdByName(createdBy) {
 // unresolved entries get nothing instead of an "Admin" / "—" placeholder.
 function _isPartnerCreated(createdBy) {
   if (!createdBy || createdBy === 'admin') return false;
-  const cache = _KLIENTET_CACHE || [];
+  const cache = _SERVICE_KLIENTET || [];
   let k = cache.find(x => x.id === createdBy);
   if (!k && typeof createdBy === 'string' && createdBy.includes('@')) {
     const lower = createdBy.toLowerCase().trim();
@@ -4458,17 +4481,17 @@ window._debugOrder = function(orderId) {
   console.log('[debug] order summary:', o);
   console.log('[debug] order.createdBy:', o ? o.createdBy : '(no order)');
   if (o && o.createdBy && o.createdBy !== 'admin') {
-    const k = (_KLIENTET_CACHE || []).find(x => x.id === o.createdBy);
+    const k = (_SERVICE_KLIENTET || []).find(x => x.id === o.createdBy);
     console.log('[debug] matched klient by id:', k);
     if (!k && typeof o.createdBy === 'string' && o.createdBy.includes('@')) {
       const lower = o.createdBy.toLowerCase().trim();
-      const kByEmail = (_KLIENTET_CACHE || []).find(x =>
+      const kByEmail = (_SERVICE_KLIENTET || []).find(x =>
         String(x.email || '').toLowerCase().trim() === lower);
       console.log('[debug] matched by email fallback:', kByEmail);
     }
   }
   console.log('[debug] partners in cache:',
-    (_KLIENTET_CACHE || []).filter(x => x.isPartner).map(x => ({
+    (_SERVICE_KLIENTET || []).filter(x => x.isPartner).map(x => ({
       id: x.id, emri: x.emri, email: x.email,
     })));
 };
@@ -4477,7 +4500,7 @@ window._debugOrder = function(orderId) {
 // Easier than scrolling Firestore by hand when something's off.
 window._debugKlients = function() {
   if (!isAdmin()) { console.warn('Admin only'); return; }
-  console.table((_KLIENTET_CACHE || []).map(k => ({
+  console.table((_SERVICE_KLIENTET || []).map(k => ({
     id: k.id, emri: k.emri, email: k.email,
     isPartner: k.isPartner === true,
     createdBy: k.createdBy || '(unset)',
@@ -4498,7 +4521,7 @@ window._adminReassignOrder = async function(orderId, target) {
   let createdByValue = target;
   if (target !== 'admin') {
     const lower = String(target || '').toLowerCase().trim();
-    const k = (_KLIENTET_CACHE || []).find(x =>
+    const k = (_SERVICE_KLIENTET || []).find(x =>
       x.isPartner && String(x.email || '').toLowerCase().trim() === lower);
     if (k) createdByValue = k.id;
     // else: assume the caller passed a raw klient id and let it through
@@ -4635,55 +4658,162 @@ function applyRoleUi() {
   }
 }
 
-// In-memory cache of all clients, populated at boot from `klientet/` collection.
-// Sync reads everywhere via loadKlientet(); writes go to Firestore + cache.
-let _KLIENTET_CACHE = [];
+// ═══ CLIENTS FROM INCO BILANC ═══════════════════════════════════════
+// Bilanc's clients (its partners that are not suppliers) are the ONLY client
+// list, shared by both apps: the Klientët page, the new-order picker and every
+// client name come from Bilanc, and "Klient i Ri" / "Edito" write to Bilanc
+// (through the bridge, so Bilanc's history records it). New orders store the
+// Bilanc client id in klient_id.
+//
+// This app's own `klientet` collection stays as it is (nothing is deleted):
+// older orders carry those old ids, and partner logins live there (isPartner +
+// email, mirrored in partner_index for the rules). Each old client is LINKED to
+// its Bilanc client: by a link set here by hand (klientet.bilancId), else by the
+// link Bilanc remembered when it billed one of its orders, else by the same
+// name. Its orders then show the Bilanc name and count under that client. Old
+// clients without a Bilanc client stay visible with their orders ("Pa lidhje me
+// Bilanc") and can be linked by hand; they can't get new orders. No order is
+// ever rewritten or deleted by any of this.
+//
+// If Bilanc can't be reached at boot, the app falls back to its own list (as
+// before the switch) and adding/editing clients is blocked until a reload.
+let _KLIENTET_CACHE = [];          // what the app shows: Bilanc clients + unlinked old clients
+let _SERVICE_KLIENTET = [];        // this app's klientet docs (old clients + partner logins)
+let _KLIENT_ALIAS = {};            // old client id → Bilanc client id
+let _BILANC_CLIENT_DATA = null;    // { partners, links } as last read from Bilanc
+let _klientetRefreshAt = 0;
+window._KLIENTET_SOURCE = 'service';   // 'bilanc' once Bilanc's clients are loaded
 
 function loadKlientet() {
   return _KLIENTET_CACHE;
 }
 
-// Replaces the whole list (used for deletes — finds removed entries and
-// deletes them from Firestore in a batch). Adds/updates use upsertKlient instead.
-async function saveKlientet(list) {
-  // Determine deletions by comparing IDs
-  const newIds = new Set(list.map(k => k.id));
-  const removed = _KLIENTET_CACHE.filter(k => !newIds.has(k.id));
-  _KLIENTET_CACHE = list;
-  try {
-    if(removed.length) {
-      const batch = db.batch();
-      for(const k of removed) batch.delete(db.collection('klientet').doc(k.id));
-      await batch.commit();
-    }
-  } catch(e) {
-    console.error('[INCO] klientet delete failed:', e);
-    shellToast('Gabim: fshirja dështoi (' + (e.message||'rrjeti') + ')');
+// The id a client is listed under (an old id → its Bilanc client).
+function _klientKey(id) { return (id && _KLIENT_ALIAS[id]) || id || ''; }
+// The client of an order's klient_id (old ids resolve to their Bilanc client).
+function klientOf(id) {
+  if (!id) return null;
+  const key = _klientKey(id);
+  return _KLIENTET_CACHE.find(k => k.id === key) || null;
+}
+// Current name of a client, else the fallback (e.g. the order's snapshot name).
+function klientNameOf(id, fallback) {
+  const k = klientOf(id);
+  return (k && k.emri) || fallback || '';
+}
+// Every id this client has orders under: its own id + the old ids linked to it.
+function _klientIds(id) {
+  const key = _klientKey(id);
+  return [key, ...Object.keys(_KLIENT_ALIAS).filter(x => _KLIENT_ALIAS[x] === key && x !== key)];
+}
+// The partner-login row (this app's klientet) of a client, if it has one.
+function _klientLoginRow(k) {
+  if (!k) return null;
+  const ids = _klientIds(k.id);
+  return _SERVICE_KLIENTET.find(r => r && r.isPartner === true && ids.includes(r.id)) || null;
+}
+function _klientLooseKey(s) { return _bcNorm(s).replace(/[^a-z0-9]/g, ''); }
+
+// Bilanc's clients + this app's rows → the list and the old-id links.
+function _buildKlientList(partners, links, rows) {
+  const clients = (partners || []).filter(p => p && p.id && p.type !== 'supplier');
+  const byId = new Map(clients.map(p => [p.id, p]));
+  const byName = new Map();   // loose name → client (null when two clients share it)
+  for (const p of clients) { const key = _klientLooseKey(p.name); byName.set(key, byName.has(key) ? null : p); }
+  const alias = {};
+  for (const r of rows) {
+    if (!r || !r.id || byId.has(r.id)) continue;   // a login row made for a Bilanc client has its id
+    const link = links && links[r.id];
+    const via = (r.bilancId && byId.get(r.bilancId))
+      || (link && link.partnerId && byId.get(link.partnerId))
+      || byName.get(_klientLooseKey(r.emri))
+      || null;
+    if (via) alias[r.id] = via.id;
   }
+  const list = clients.map(p => {
+    const oldIds = Object.keys(alias).filter(x => alias[x] === p.id);
+    const ids = [p.id, ...oldIds];
+    const login = rows.find(r => r && r.isPartner === true && ids.includes(r.id)) || null;
+    return {
+      id: p.id, emri: p.name || '', telefoni: p.phone || '', email: p.email || (login && login.email) || '', adresa: p.address || '',
+      isPartner: !!login, createdBy: p.serviceCreatedBy || 'admin', active: p.active !== false,
+      source: 'bilanc', oldIds,
+    };
+  });
+  for (const r of rows) {
+    if (!r || !r.id || alias[r.id] || byId.has(r.id)) continue;
+    list.push({ ...r, source: 'old', oldIds: [] });
+  }
+  return { list, alias };
 }
 
-// Insert or update a single client in Firestore + cache.
-async function upsertKlient(k) {
-  if(!k.id) k.id = 'klt_' + Date.now() + '_' + Math.floor(Math.random()*1000);
-  const idx = _KLIENTET_CACHE.findIndex(x => x.id === k.id);
-  if(idx >= 0) _KLIENTET_CACHE[idx] = k;
-  else _KLIENTET_CACHE.push(k);
-  // NOTE: cache update happens BEFORE the network round-trip (optimistic).
-  // Callers that need to roll back on failure must catch and undo the cache
-  // change themselves (see saveKlient). On error we rethrow so they can.
-  await db.collection('klientet').doc(k.id).set(k);
-  return true;
+function _rebuildKlientet() {
+  if (!_BILANC_CLIENT_DATA) {
+    _KLIENTET_CACHE = _SERVICE_KLIENTET.map(r => ({ ...r, source: 'service', oldIds: [] }));
+    _KLIENT_ALIAS = {};
+    window._KLIENTET_SOURCE = 'service';
+    return;
+  }
+  const built = _buildKlientList(_BILANC_CLIENT_DATA.partners, _BILANC_CLIENT_DATA.links, _SERVICE_KLIENTET);
+  _KLIENTET_CACHE = built.list;
+  _KLIENT_ALIAS = built.alias;
+  window._KLIENTET_SOURCE = 'bilanc';
 }
 
-// Boot: load all klientet from Firestore into cache.
+// Read Bilanc's partners and the client links it remembered (read-only).
+async function _loadBilancClientData() {
+  const app = (firebase.apps || []).find(a => a.name === 'bilanc') || firebase.initializeApp(BILANC_FIREBASE_CONFIG, 'bilanc');
+  const company = app.firestore().collection('companies').doc(BILANC_COMPANY_ID);
+  const read = Promise.all([company.collection('partners').get(), company.get()]);
+  const [ps, cs] = await Promise.race([read, new Promise((_, rej) => setTimeout(() => rej(new Error('koha mbaroi')), 15000))]);
+  const settings = (cs && cs.exists && cs.data() && cs.data().settings) || {};
+  const data = { partners: ps.docs.map(d => ({ ...d.data(), id: d.id })), links: (settings.service && settings.service.clients) || {} };
+  if (!data.partners.some(p => p && p.type !== 'supplier')) throw new Error('asnjë klient në Bilanc');
+  return data;
+}
+
+// Boot: this app's rows, then Bilanc's clients.
 async function bootLoadKlientet() {
   const snap = await db.collection('klientet').get();
-  _KLIENTET_CACHE = snap.docs.map(d => d.data());
+  _SERVICE_KLIENTET = snap.docs.map(d => d.data());
+  try {
+    _BILANC_CLIENT_DATA = await _loadBilancClientData();
+  } catch (e) {
+    console.warn('[INCO] Bilanc clients not loaded, using this app\'s list:', e);
+    _BILANC_CLIENT_DATA = null;
+    setTimeout(() => shellToast('Klientët nga Bilanc nuk u ngarkuan (' + (e.message || 'rrjeti') + '). Rifresko faqen.', 'err'), 1800);
+  }
+  _klientetRefreshAt = Date.now();
+  _rebuildKlientet();
+}
+
+// Read Bilanc's clients again (a client added there a moment ago shows up here).
+// At most every 20 s; resolves true when the list changed.
+async function _refreshKlientet() {
+  if (Date.now() - _klientetRefreshAt < 20000) return false;
+  _klientetRefreshAt = Date.now();
+  const sig = () => JSON.stringify(_KLIENTET_CACHE.map(k => [k.id, k.emri, k.active, k.source]));
+  const before = sig();
+  try { _BILANC_CLIENT_DATA = await _loadBilancClientData(); }
+  catch (e) { console.warn('[INCO] Bilanc clients not refreshed:', e); return false; }
+  _rebuildKlientet();
+  return sig() !== before;
+}
+
+// Adding / editing clients writes to Bilanc: blocked while Bilanc is not loaded.
+function _klientetEditable() {
+  if (window._KLIENTET_SOURCE === 'bilanc') return true;
+  shellToast('Klientët e Bilanc nuk janë ngarkuar: rifresko faqen', 'err');
+  return false;
 }
 
 let kEditId = null;
 
 function openKModal(id=null) {
+  if (!_klientetEditable()) return;
+  const k0 = id ? klientOf(id) : null;
+  if (k0 && k0.source === 'old') { openKLinkModal(k0.id); return; }
+  if (k0) id = k0.id;
   kEditId = id;
   document.getElementById('km-title').textContent = id ? 'Edito Klientin' : 'Klient i Ri';
   ['mk-emri','mk-tel','mk-email','mk-adr'].forEach(x => document.getElementById(x).value = '');
@@ -4710,7 +4840,7 @@ function closeKModal() { document.getElementById('k-modal').classList.remove('op
 // The Firestore security rules read /partner_index/{email} to resolve
 // a signed-in partner's email → their klient row.  The admin's
 // saveKlient flow stamps the table when the isPartner checkbox is
-// toggled, and delKlient cleans up the entry on cascade delete.
+// toggled (clients themselves live in Inco Bilanc and are not deleted here).
 // Without this table the rules can't recognize a partner — so this
 // has to stay in sync with the klientet collection.
 //
@@ -4740,7 +4870,7 @@ async function _deletePartnerIndex(email) {
 // original Alfons Mata setup).
 async function _backfillPartnerIndex() {
   if (!isAdmin()) return;
-  const partners = (_KLIENTET_CACHE || []).filter(k =>
+  const partners = (_SERVICE_KLIENTET || []).filter(k =>
     k && k.isPartner === true && k.email && k.id);
   if (partners.length === 0) return;
   let ok = 0, fail = 0;
@@ -4751,200 +4881,221 @@ async function _backfillPartnerIndex() {
   console.log('[INCO] partner_index backfilled:', ok, 'ok,', fail, 'failed,', partners.length, 'total');
 }
 
+// Save the client form into Bilanc (the only client list) through the bridge.
+// The partner flag is this app's own (logins): it is kept on this app's
+// klientet row + partner_index, see _syncPartnerLogin.
 async function saveKlient() {
+  if (!_klientetEditable()) return;
   const emri = document.getElementById('mk-emri').value.trim();
   if(!emri) { shellToast('Emri është i detyrueshëm','err'); return; }
   // Duplicate-name check (case-insensitive, whitespace-collapsed). On edit, exclude self.
+  // Bilanc checks it again when it saves.
   const dup = findKlientByName(emri, kEditId || undefined);
   if(dup) { shellToast(`Klienti "${dup.emri}" ekziston tashmë`,'err'); return; }
-  const list = loadKlientet();
   // The isPartner checkbox is admin-only (CSS hides it on partners), but
   // also enforce here: a partner can never flip another klient to partner.
   const cbPartner = document.getElementById('mk-is-partner');
   const wantsPartner = !!(isAdmin() && cbPartner && cbPartner.checked);
-  if(kEditId) {
-    const k = list.find(k => k.id === kEditId);
-    if(k) {
-      // Snapshot the previous values so we can roll back the in-memory cache
-      // if the Firestore write fails. upsertKlient already updates _KLIENTET_CACHE
-      // optimistically, so a failure leaves a divergent local view otherwise.
-      const prev = { emri: k.emri, telefoni: k.telefoni, email: k.email, adresa: k.adresa, isPartner: k.isPartner };
-      k.emri     = emri;
-      k.telefoni = document.getElementById('mk-tel').value.trim();
-      k.email    = document.getElementById('mk-email').value.trim();
-      k.adresa   = document.getElementById('mk-adr').value.trim();
-      if (isAdmin()) k.isPartner = wantsPartner;
-      try {
-        await upsertKlient(k);
-      } catch(e) {
-        // Roll back the cache on failure so future renders show the real state.
-        Object.assign(k, prev);
-        console.error('[INCO] klient update failed:', e);
-        shellToast('Gabim: ruajtja dështoi (' + (e.message||'rrjeti') + ')','err');
-        return;
-      }
-      // Keep partner_index in sync.  Five cases:
-      //   prev=F now=F → noop
-      //   prev=F now=T → write
-      //   prev=T now=F → delete prev
-      //   prev=T now=T email same → write (overwrite, idempotent)
-      //   prev=T now=T email changed → write new, delete old
-      // Failures are non-fatal: the klient row is the source of truth;
-      // _backfillPartnerIndex on next admin login will re-converge.
-      if (isAdmin()) {
-        try {
-          if (k.isPartner && k.email) {
-            await _writePartnerIndex(k.id, k.email);
-          }
-          const prevEmailLc = (prev.email || '').toLowerCase().trim();
-          const nowEmailLc  = (k.email || '').toLowerCase().trim();
-          if (prev.isPartner && (!k.isPartner || (prevEmailLc && prevEmailLc !== nowEmailLc))) {
-            await _deletePartnerIndex(prev.email);
-          }
-        } catch (e) { console.warn('[INCO] partner_index sync (edit) failed:', e); }
-      }
-    }
-    shellToast('Klienti u përditësua ✓'); closeKModal(); renderKlientet();
-  } else {
-    const id = 'klt_' + Date.now() + '_' + Math.floor(Math.random()*1000);
-    const k = {
-      id, emri,
-      telefoni: document.getElementById('mk-tel').value.trim(),
-      email:    document.getElementById('mk-email').value.trim(),
-      adresa:   document.getElementById('mk-adr').value.trim(),
-      isPartner: wantsPartner,
+  const editId = kEditId;
+  const btn = document.getElementById('mk-save-btn');
+  if (btn) btn.disabled = true;
+  let res = null;
+  try {
+    const bridge = await _bilancLoadBridge();
+    if (typeof bridge.saveServiceClient !== 'function') throw new Error('lidhja me Bilanc është e vjetër, rifresko faqen');
+    res = await bridge.saveServiceClient({
+      id: editId || undefined,
+      name: emri,
+      phone:   document.getElementById('mk-tel').value.trim(),
+      email:   document.getElementById('mk-email').value.trim(),
+      address: document.getElementById('mk-adr').value.trim(),
       // createdBy: admin-created → 'admin'; partner-created → their klient id.
       // Drives every filter (klient grid, orders list, new-order dropdown)
       // so partners see only what they themselves added to the system.
       createdBy: isPartner() ? window._ROLE.partnerKlientId : 'admin',
-    };
-    try {
-      await upsertKlient(k);
-    } catch(e) {
-      // upsertKlient pushes to _KLIENTET_CACHE before the await; on failure
-      // we need to remove the optimistic insert so it doesn't appear in the UI.
-      _KLIENTET_CACHE = _KLIENTET_CACHE.filter(x => x.id !== id);
-      console.error('[INCO] klient create failed:', e);
-      shellToast('Gabim: ruajtja dështoi (' + (e.message||'rrjeti') + ')','err');
+    }, { user: _bilancUser() });
+  } catch (e) {
+    console.error('[INCO] klient save (Bilanc) failed:', e);
+    res = { ok: false, error: 'Gabim: klienti nuk u ruajt në Bilanc (' + (e.message || 'rrjeti') + ')' };
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+  if (!res || !res.ok) { shellToast((res && res.error) || 'Klienti nuk u ruajt', 'err'); return; }
+  // Keep the local copy of Bilanc's partners in step, then rebuild the list.
+  const p = res.partner;
+  const parts = _BILANC_CLIENT_DATA.partners;
+  const at = parts.findIndex(x => x.id === p.id);
+  if (at >= 0) parts[at] = p; else parts.push(p);
+  _rebuildKlientet();
+  if (isAdmin()) {
+    try { await _syncPartnerLogin(klientOf(p.id), wantsPartner); }
+    catch (e) {
+      console.warn('[INCO] partner login sync failed:', e);
+      shellToast('Klienti u ruajt, por aksesi i partnerit jo: ' + (e.message || 'rrjeti'), 'err');
+      closeKModal(); renderKlientet();
       return;
     }
-    // Stamp partner_index immediately if admin just created a partner.
-    // Non-fatal on failure — _backfillPartnerIndex picks it up next login.
-    if (isAdmin() && k.isPartner && k.email) {
-      try { await _writePartnerIndex(k.id, k.email); }
-      catch (e) { console.warn('[INCO] partner_index sync (create) failed:', e); }
-    }
-    shellToast('Klienti u shtua ✓'); closeKModal(); renderKlientet();
   }
+  shellToast(editId ? 'Klienti u përditësua në Bilanc ✓' : 'Klienti u shtua në Bilanc ✓');
+  closeKModal(); renderKlientet();
 }
 
-// Public entry point for the "Fshi" button in the klient folder grid.
-// Takes only the id; looks up name internally so klient names with quotes/<>
-// don't have to be escaped through inline onclick attributes.
-async function delKlientById(id) {
-  const k = loadKlientet().find(k => k.id === id);
-  if(!k) { shellToast('Klienti nuk u gjet','err'); return; }
-  await delKlient(id, k.emri);
+// Partner logins stay in this app (the rules read partner_index → klientet).
+// The row is the client's existing login row (e.g. an old client linked to the
+// Bilanc client), else a new row under the Bilanc id. Only isPartner and email
+// are changed on an existing row.
+async function _syncPartnerLogin(k, want) {
+  if (!k) return;
+  const row = _klientLoginRow(k) || _SERVICE_KLIENTET.find(r => r && r.id === k.id) || null;
+  const email = String(k.email || '').trim();
+  const put = async (next) => {
+    await db.collection('klientet').doc(next.id).set(next);
+    const i = _SERVICE_KLIENTET.findIndex(r => r && r.id === next.id);
+    if (i >= 0) _SERVICE_KLIENTET[i] = next; else _SERVICE_KLIENTET.push(next);
+  };
+  if (want) {
+    if (!email) throw new Error('partneri duhet të ketë email');
+    const prevEmail = row && row.isPartner ? String(row.email || '') : '';
+    if (row && row.isPartner && prevEmail.toLowerCase().trim() === email.toLowerCase()) {
+      await _writePartnerIndex(row.id, email);   // idempotent
+    } else {
+      const next = row ? { ...row, isPartner: true, email }
+        : { id: k.id, emri: k.emri, telefoni: k.telefoni || '', email, adresa: k.adresa || '', isPartner: true, createdBy: 'admin', bilancId: k.id };
+      await put(next);
+      await _writePartnerIndex(next.id, email);
+      if (prevEmail && prevEmail.toLowerCase().trim() !== email.toLowerCase()) await _deletePartnerIndex(prevEmail);
+    }
+  } else if (row && row.isPartner) {
+    await put({ ...row, isPartner: false });
+    await _deletePartnerIndex(row.email);
+  }
+  _rebuildKlientet();
 }
 
-async function delKlient(id, emri) {
-  const orders = loadOrders().filter(o => o.klient_id === id);
-  const msg = orders.length > 0
-    ? `Klienti "${emri}" ka ${orders.length} porosi.\nFshirja do të fshijë klientin dhe TË GJITHA porosite e tij.\nVazhdo?`
-    : `Fshi klientin "${emri}"?`;
-  if(!confirm(msg)) return;
+// Clients live in Inco Bilanc: they are deleted there (Bilanc → Klientët),
+// never here, and deleting a client never touches its orders.
+function delKlientById() {
+  shellToast('Klientët fshihen te Inco Bilanc → Klientët. Porositë nuk preken.', 'err');
+}
 
-  // Cascade-delete using Firestore batch writes. Firestore caps at 500 ops
-  // per batch, so chunk the deletes. Each order = up to 4 ops (trash set +
-  // porosite / porosite_index / kanban deletes), so cap at 100 orders per
-  // batch to stay well under 500. Every removed order is moved to
-  // `porosite_trash` first (same soft-delete as deleteOrderById) so even a
-  // mistaken customer cascade is recoverable.
+// ── Old clients without a Bilanc client: link them by hand ──────────
+// Only the link (klientet.bilancId) is stored on the old client's row;
+// its orders are not changed, they just show under the Bilanc client.
+let _klLinkId = null;
+
+// 0…1, how alike two names are (edit distance on the letters and digits).
+function _klSimilarity(a, b) {
+  const x = _klientLooseKey(a), y = _klientLooseKey(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  let prev = Array.from({ length: y.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= x.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= y.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  let s = 1 - prev[y.length] / Math.max(x.length, y.length);
+  if (Math.min(x.length, y.length) >= 4 && (x.includes(y) || y.includes(x))) s = Math.max(s, 0.75);
+  return s;
+}
+
+function openKLinkModal(oldId) {
+  if (!isAdmin()) { shellToast('Vetëm administratori i lidh klientët', 'err'); return; }
+  if (!_klientetEditable()) return;
+  const old = _SERVICE_KLIENTET.find(r => r && r.id === oldId);
+  if (!old) { shellToast('Klienti nuk u gjet', 'err'); return; }
+  _klLinkId = oldId;
+  const n = loadOrders().filter(o => o.klient_id === oldId).length;
+  document.getElementById('kl-info').innerHTML =
+    `<b>${escHtml(old.emri || '—')}</b> (${n} porosi) nuk ka klient me të njëjtin emër në Inco Bilanc. ` +
+    `Zgjidh klientin e Bilanc që i përket: porositë e tij do të shfaqen te ai klient. Porositë nuk ndryshohen.`;
+  const clients = loadKlientet().filter(k => k.source === 'bilanc')
+    .sort((a, b) => (a.emri || '').localeCompare((b.emri || ''), 'sq', { sensitivity: 'base' }));
+  const like = clients.map(k => ({ k, s: _klSimilarity(old.emri, k.emri) }))
+    .filter(x => x.s >= 0.6).sort((a, b) => b.s - a.s).slice(0, 5);
+  const opt = k => `<option value="${escHtml(k.id)}">${escHtml(k.emri)}</option>`;
+  const sel = document.getElementById('kl-target');
+  sel.innerHTML = '<option value="">— Zgjidh klientin e Bilanc —</option>'
+    + (like.length ? '<optgroup label="Me emër të ngjashëm">' + like.map(x => opt(x.k)).join('') + '</optgroup>' : '')
+    + '<optgroup label="Të gjithë klientët e Bilanc">' + clients.map(opt).join('') + '</optgroup>';
+  sel.value = '';
+  document.getElementById('kl-modal').classList.add('open');
+  setTimeout(() => sel.focus(), 100);
+}
+function closeKLinkModal() { document.getElementById('kl-modal').classList.remove('open'); _klLinkId = null; }
+
+async function saveKLink(targetId) {
+  const oldId = _klLinkId;
+  const target = targetId || document.getElementById('kl-target').value;
+  if (!oldId) return;
+  if (!target || !_BILANC_CLIENT_DATA.partners.some(p => p.id === target)) { shellToast('Zgjidh klientin e Bilanc', 'err'); return; }
   try {
-    const CHUNK = 100;
-    const nowIso = new Date().toISOString();
-    const delBy = (isPartner() && window._ROLE.partnerKlientId) ? window._ROLE.partnerKlientId : 'admin';
-    for(let i = 0; i < orders.length; i += CHUNK) {
-      const slice = orders.slice(i, i + CHUNK);
-      // Fetch the full docs for this slice (cache holds only summaries).
-      const fulls = await Promise.all(slice.map(o =>
-        db.collection('porosite').doc(String(o.id)).get().catch(() => null)));
-      const batch = db.batch();
-      for(let k = 0; k < slice.length; k++) {
-        const idStr = String(slice[k].id);
-        const snap = fulls[k];
-        if (snap && snap.exists) {
-          batch.set(db.collection('porosite_trash').doc(idStr), {
-            order:     snap.data(),
-            kanban:    _KANBAN_CACHE[idStr] || null,
-            deletedAt: nowIso,
-            deletedBy: delBy,
-          });
-        }
-        batch.delete(db.collection('porosite').doc(idStr));
-        batch.delete(db.collection('porosite_index').doc(idStr));
-        batch.delete(db.collection('kanban').doc(idStr));
-      }
-      await batch.commit();
-      // Update local caches after each successful batch (so a mid-flight
-      // failure leaves caches consistent with what's on disk).
-      const sliceIds = new Set(slice.map(o => o.id));
-      _ORDERS_CACHE = _ORDERS_CACHE.filter(o => !sliceIds.has(o.id));
-      for(const o of slice) delete _KANBAN_CACHE[String(o.id)];
-    }
-    // Deleted orders are off the shop floor: stop any paint timers on them.
-    for (const o of orders) {
-      try { await _ptCloseOpenSessionsForOrder(String(o.id), 'order-deleted'); }
-      catch (e) { console.warn('[pt] closing timers of deleted order failed:', e); }
-    }
-    // Per-client fatura counter: best-effort cleanup. It's just a counter
-    // and the next allocation will re-seed from cache, so failure here is
-    // not fatal.
-    try {
-      await db.collection('counters').doc('fatura_' + id).delete();
-    } catch(_) { /* non-fatal */ }
-    // Finally delete the klient itself.
-    await db.collection('klientet').doc(id).delete();
-    // If this was a partner klient, drop the partner_index lookup row
-    // too — otherwise that email could still resolve to a now-deleted
-    // klientId in the rules.  Non-fatal on failure.
-    const deletedKlient = (_KLIENTET_CACHE || []).find(x => x.id === id);
-    if (deletedKlient && deletedKlient.isPartner && deletedKlient.email) {
-      await _deletePartnerIndex(deletedKlient.email);
-    }
-    _KLIENTET_CACHE = _KLIENTET_CACHE.filter(k => k.id !== id);
-  } catch(e) {
-    console.error('[INCO] klient cascade-delete failed:', e);
-    shellToast('Gabim: fshirja dështoi (' + (e.message||'rrjeti') + ')');
+    await db.collection('klientet').doc(oldId).update({ bilancId: target });
+  } catch (e) {
+    console.error('[INCO] klient link failed:', e);
+    shellToast('Gabim: lidhja nuk u ruajt (' + (e.message || 'rrjeti') + ')', 'err');
     return;
   }
-  shellToast('Klienti u fshi');
-  renderKlientet();
+  const row = _SERVICE_KLIENTET.find(r => r && r.id === oldId);
+  if (row) row.bilancId = target;
+  _rebuildKlientet();
+  closeKLinkModal(); renderKlientet();
+  shellToast(`U lidh me "${klientNameOf(target)}" ✓`);
+}
+
+// The old client has no Bilanc client yet: create it in Bilanc with the same details, then link.
+async function createBilancFromOld() {
+  const old = _SERVICE_KLIENTET.find(r => r && r.id === _klLinkId);
+  if (!old) return;
+  let res = null;
+  try {
+    const bridge = await _bilancLoadBridge();
+    if (typeof bridge.saveServiceClient !== 'function') throw new Error('lidhja me Bilanc është e vjetër, rifresko faqen');
+    res = await bridge.saveServiceClient({ name: old.emri, phone: old.telefoni || '', email: old.email || '', address: old.adresa || '', createdBy: 'admin' }, { user: _bilancUser() });
+  } catch (e) {
+    res = { ok: false, error: 'Gabim: klienti nuk u krijua në Bilanc (' + (e.message || 'rrjeti') + ')' };
+  }
+  if (!res || !res.ok) { shellToast(((res && res.error) || 'Klienti nuk u krijua') + ' — zgjidhe te lista.', 'err'); return; }
+  _BILANC_CLIENT_DATA.partners.push(res.partner);
+  _rebuildKlientet();
+  await saveKLink(res.partner.id);
 }
 
 function renderKlientet() {
   const q = (document.getElementById('k-srch')?.value || '').toLowerCase();
+  // Orders count under the client they belong to (old ids → their Bilanc client).
+  const cnt = {};
+  for (const o of loadOrders()) { const key = _klientKey(o.klient_id); if (key) cnt[key] = (cnt[key] || 0) + 1; }
   // Role filter: partner sees only klients they created (+ themselves).
-  // Alphabetical by name (locale-aware so Albanian-specific characters like
-  // ç/ë sort where the operator expects them, case-insensitive).
+  // Bilanc's clients first, then the old clients not linked to one (only those
+  // with orders). Alphabetical by name (locale-aware so Albanian-specific
+  // characters like ç/ë sort where the operator expects them, case-insensitive).
   const klientet = loadKlientet()
     .filter(k => _ownsKlient(k))
-    .filter(k => !q || k.emri.toLowerCase().includes(q))
-    .sort((a, b) => (a.emri || '').localeCompare((b.emri || ''), 'sq', { sensitivity: 'base' }));
-  const orders = loadOrders();
-  document.getElementById('k-count').textContent = `${klientet.length} klientë`;
+    .filter(k => k.source !== 'old' || cnt[k.id])
+    .filter(k => !q || (k.emri || '').toLowerCase().includes(q))
+    .sort((a, b) => ((a.source === 'old') - (b.source === 'old'))
+      || (a.emri || '').localeCompare((b.emri || ''), 'sq', { sensitivity: 'base' }));
+  const nOld = klientet.filter(k => k.source === 'old').length;
+  document.getElementById('k-count').textContent = `${klientet.length - nOld} klientë`
+    + (window._KLIENTET_SOURCE === 'bilanc' ? ' · nga Inco Bilanc' : ' · Bilanc nuk u ngarkua')
+    + (nOld ? ` · ${nOld} të vjetër pa lidhje` : '');
   const el = document.getElementById('folder-grid');
   if(!klientet.length) {
     el.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><div style="font-size:40px;margin-bottom:12px">📂</div><div style="font-weight:600;font-size:15px">Asnjë klient</div><div style="font-size:12px;margin-top:6px">Shtoni klientin e parë</div></div><div class="folder-new" onclick="openKModal()"><div class="fni">➕</div><div class="fnt">Klient i Ri</div></div>`;
     return;
   }
   el.innerHTML = klientet.map(k => {
-    const cnt = orders.filter(o => o.klient_id === k.id).length;
+    const old = k.source === 'old';
     // Partner badge (klients marked isPartner) — shown to everyone so the
     // admin can see who's a partner at a glance, and the partner can
     // recognise themselves in the list.
     const partnerBadge = k.isPartner
       ? `<span style="display:inline-block;background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd;border-radius:5px;padding:1px 7px;font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-left:6px;">Partner</span>`
+      : '';
+    // An old client of this app with no Bilanc client: its orders stay here until it is linked.
+    const oldBadge = old
+      ? `<span title="Klient i vjetër i këtij programi, pa klient në Inco Bilanc" style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 7px;font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-left:6px;">Pa lidhje me Bilanc</span>`
       : '';
     // "Krijuar nga" line — admin-only, shown only when the klient was
     // actually added by a partner.  Admin-created klients render nothing
@@ -4952,18 +5103,20 @@ function renderKlientet() {
     const createdByLine = _isPartnerCreated(k.createdBy)
       ? `<div class="admin-only" style="font-size:10px;color:#6b7280;margin-top:4px;font-family:'DM Mono',monospace;">Krijuar nga: <b>${escHtml(_createdByName(k.createdBy))}</b></div>`
       : '';
-    return `<div class="folder">
-      <div class="ftop"><span class="ficon">📁</span>${partnerBadge}</div>
+    const actions = old
+      ? `<button class="btn btn-blue btn-xs admin-only" onclick="openKLinkModal('${escHtml(k.id)}')">🔗 Lidh me Bilanc</button>`
+      : `<button class="btn btn-blue btn-xs" onclick="openKModal('${escHtml(k.id)}')">Edito</button>`;
+    return `<div class="folder"${old ? ' style="border-style:dashed;opacity:.9;"' : ''}>
+      <div class="ftop"><span class="ficon">📁</span>${partnerBadge}${oldBadge}</div>
       <div class="fbody">
         <div class="fname">${escHtml(k.emri)}</div>
         <div class="fmeta"><span>${escHtml(k.telefoni||'—')}</span><span>${escHtml(k.email||'—')}</span></div>
         ${createdByLine}
       </div>
       <div class="ffoot">
-        <span class="fcnt">${cnt} porosi</span>
+        <span class="fcnt">${cnt[k.id] || 0} porosi</span>
         <div class="facts" onclick="event.stopPropagation()">
-          <button class="btn btn-blue btn-xs" onclick="openKModal('${escHtml(k.id)}')">Edito</button>
-          <button class="btn btn-red btn-xs"  onclick="delKlientById('${escHtml(k.id)}')">Fshi</button>
+          ${actions}
         </div>
       </div>
     </div>`;
@@ -5026,33 +5179,30 @@ async function allocateOrderId() {
 
 // Allocate the next per-client fatura number transactionally.
 // Counter doc: counters/fatura_{klientId}, field { next: N }.
-// Seed: if the counter doesn't exist yet, look at the local cache max for this
-// client (covers the migration from the old "max+1 from cache" approach), then
-// (max+1) becomes `next` after we return that value.
+// A client can have orders under several ids (its Bilanc id and the old ids
+// of this app linked to it): its numbers continue across all of them, so the
+// counters of all its ids are read and moved forward together.
+// Seed: the highest fatura already in saved orders of those ids (covers the
+// migration from the old "max+1 from cache" approach); 99 → first = 100.
 async function allocateFaturaForKlient(klientId) {
   if(!klientId) throw new Error('klientId required');
-  const counterRef = db.collection('counters').doc('fatura_' + klientId);
-  // Seed from cache: highest fatura already in saved orders for this client.
+  const ids = [...new Set([klientId, ..._klientIds(klientId)])];
+  const refs = ids.map(id => db.collection('counters').doc('fatura_' + id));
   const localMax = (loadOrders()
-    .filter(o => o.klient_id === klientId && o.fatura)
+    .filter(o => ids.includes(o.klient_id) && o.fatura)
     .map(o => parseInt(o.fatura))
     .filter(n => !isNaN(n)));
-  const seedFromCache = localMax.length ? Math.max(...localMax) : 99;  // 99 → first allocation = 100
+  const seedFromCache = localMax.length ? Math.max(...localMax) : 99;
 
   return await db.runTransaction(async tx => {
-    const snap = await tx.get(counterRef);
-    let cur;
-    if(!snap.exists) {
-      cur = seedFromCache + 1;
-      tx.set(counterRef, { next: cur + 1 });
-    } else {
-      // If the counter is somehow behind the cache (rare; e.g. data restored
-      // from backup, or a write to porosite that bypassed the counter), bump
-      // it forward to seedFromCache+1 to avoid duplicate fatura numbers.
-      const stored = snap.data().next || 100;
-      cur = Math.max(stored, seedFromCache + 1);
-      tx.update(counterRef, { next: cur + 1 });
-    }
+    const snaps = [];
+    for (const ref of refs) snaps.push(await tx.get(ref));
+    // If a counter is somehow behind the cache (rare; e.g. data restored
+    // from backup, or a write to porosite that bypassed the counter), the
+    // cache wins, to avoid duplicate fatura numbers.
+    let cur = seedFromCache + 1;
+    for (const s of snaps) if (s.exists) cur = Math.max(cur, s.data().next || 100);
+    for (const ref of refs) tx.set(ref, { next: cur + 1 }, { merge: true });
     return cur;
   });
 }
@@ -5631,11 +5781,11 @@ function _bilancOrderPayload(order) {
       remnantBoards: primary ? panels.length - billed : 0,
     };
   });
-  const k = (loadKlientet() || []).find(x => x.id === order.klient_id) || {};
+  const k = klientOf(order.klient_id) || {};
   return {
     v: 1, orderId: order.id, fatura: fat, date: order.data || '', total: Number(order.total) || 0, note: order.klientNote || '',
     projectId: order.bilancProjectId || '',
-    client: { id: order.klient_id || '', name: k.emri || order.klient_emri || '', phone: k.telefoni || '', email: k.email || '', address: k.adresa || '' },
+    client: { id: (k.source === 'bilanc' && k.id) || order.klient_id || '', serviceId: order.klient_id || '', name: k.emri || order.klient_emri || '', phone: k.telefoni || '', email: k.email || '', address: k.adresa || '' },
     sections, user: _bilancUser(),
   };
 }
@@ -5916,16 +6066,6 @@ async function purgeTrashedOrder(key) {
   }
 }
 
-// Compatibility shim for old saveOrders(list) call sites — only used by
-// delKlient cascade-delete. Translates "remove items not in list" → batch deletes.
-async function saveOrders(list) {
-  const newIds = new Set(list.map(o => o.id));
-  const removed = _ORDERS_CACHE.filter(o => !newIds.has(o.id));
-  for(const o of removed) {
-    await deleteOrderById(o.id);
-  }
-}
-
 function renderAllOrders() {
   // Partner sees only their own orders; admin sees everything.
   const all = loadOrders().filter(_ownsOrder);
@@ -5935,21 +6075,13 @@ function renderAllOrders() {
   // Filter values are klient_id; only clients who actually have orders are listed.
   const sel = document.getElementById('all-srch-klient');
   const cur = sel.value;
-  const klientList = loadKlientet();
-  const klientById = {};
-  klientList.forEach(k => { klientById[k.id] = k; });
-  const idsWithOrders = [...new Set(all.map(o => o.klient_id).filter(Boolean))];
+  // Old orders may carry an old client id: they are listed under the Bilanc client it is linked to.
+  const nameOf = id => klientNameOf(id) || ((all.find(o => _klientKey(o.klient_id) === id) || {}).klient_emri) || '(klient i fshirë)';
+  const idsWithOrders = [...new Set(all.map(o => _klientKey(o.klient_id)).filter(Boolean))];
   // Sort by current name (live lookup).
-  idsWithOrders.sort((a, b) => {
-    const na = (klientById[a]?.emri || '').toLowerCase();
-    const nb = (klientById[b]?.emri || '').toLowerCase();
-    return na < nb ? -1 : na > nb ? 1 : 0;
-  });
+  idsWithOrders.sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'sq', { sensitivity: 'base' }));
   sel.innerHTML = '<option value="">— Të gjithë klientët —</option>' +
-    idsWithOrders.map(id => {
-      const name = klientById[id]?.emri || '(klient i fshirë)';
-      return `<option value="${escHtml(id)}" ${id===cur?'selected':''}>${escHtml(name)}</option>`;
-    }).join('');
+    idsWithOrders.map(id => `<option value="${escHtml(id)}" ${id===cur?'selected':''}>${escHtml(nameOf(id))}</option>`).join('');
   filterOrders();
 }
 function filterOrders() {
@@ -5962,7 +6094,7 @@ function filterOrders() {
   // search/date filters.
   const all = loadOrders().filter(_ownsOrder).filter(o => {
     if(q && !(o.fatura||'').toLowerCase().includes(q)) return false;
-    if(klientId && o.klient_id !== klientId) return false;
+    if(klientId && _klientKey(o.klient_id) !== klientId) return false;
     if(from && o.data && o.data < from) return false;
     if(to && o.data && o.data > to) return false;
     return true;
@@ -5991,9 +6123,6 @@ function renderOrdersTable(list) {
     if (da !== db) return db.localeCompare(da);
     return (b.id || 0) - (a.id || 0);
   });
-  // Build klient lookup once for live-name resolution.
-  const klientById = {};
-  loadKlientet().forEach(k => { klientById[k.id] = k; });
   tb.innerHTML = list.map(p => {
     const total = p.total != null ? fmtALL(p.total) + ' Lek' : '—';
     const locked = isOrderLocked(p.id);
@@ -6004,7 +6133,7 @@ function renderOrdersTable(list) {
       : `<button class="btn btn-red btn-xs" onclick="delOrder(${p.id})">Fshi</button>`;
     // Prefer current klient name (handles renames). Fall back to snapshot if
     // klient was deleted (cascade-delete should also remove orders, but be safe).
-    const liveName = (p.klient_id && klientById[p.klient_id]?.emri) || p.klient_emri || '—';
+    const liveName = klientNameOf(p.klient_id, p.klient_emri) || '—';
     // ⚠ drift icon flagged orders whose frozen prices differed from
     // Konfigurim. With per-section pricing there is no Konfigurim value to
     // drift from, so the icon stays off (gated on SHOW_PRICE_DRIFT).
@@ -6201,7 +6330,7 @@ async function openOrder(id, opts) {
   // Populate header fields (readonly). Use the *current* klient name (handles
   // renames since the order was saved). Fall back to the snapshot if the klient
   // was deleted somehow.
-  const liveKlientName = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri) || order.klient_emri || '';
+  const liveKlientName = klientNameOf(order.klient_id, order.klient_emri);
   document.getElementById('klienti').value = liveKlientName;
   // Display the per-customer fatura (falls back to order id for legacy
   // orders saved before per-customer numbering). The save flow preserves
@@ -6300,19 +6429,29 @@ async function openOrder(id, opts) {
 // ═══════════════════════════════════════════════════════════════
 function openNewOrderModal() {
   const sel = document.getElementById('nom-klient');
-  sel.innerHTML = '<option value="">— Zgjidh klientin —</option>';
+  // Bilanc's clients only (old clients not linked to one can't get new orders).
   // Role filter + alphabetical so the operator scrolls a predictable list.
   // Partners only see their own klients here; the admin sees everyone.
-  const sortedKlients = loadKlientet()
-    .filter(_ownsKlient)
-    .slice()
-    .sort((a, b) =>
-      (a.emri || '').localeCompare((b.emri || ''), 'sq', { sensitivity: 'base' }));
-  sortedKlients.forEach(k => sel.insertAdjacentHTML('beforeend', `<option value="${escHtml(k.id)}">${escHtml(k.emri)}</option>`));
+  const fill = () => {
+    const keep = sel.value;
+    const sortedKlients = loadKlientet()
+      .filter(k => k.source !== 'old' && k.active !== false)
+      .filter(_ownsKlient)
+      .slice()
+      .sort((a, b) =>
+        (a.emri || '').localeCompare((b.emri || ''), 'sq', { sensitivity: 'base' }));
+    sel.innerHTML = '<option value="">— Zgjidh klientin —</option>' +
+      sortedKlients.map(k => `<option value="${escHtml(k.id)}">${escHtml(k.emri)}</option>`).join('');
+    sel.value = keep;
+  };
+  sel.innerHTML = '';
+  fill();
   sel.style.borderColor = '';
   document.getElementById('nom-klient-err').style.display = 'none';
   document.getElementById('new-order-modal').classList.add('open');
   setTimeout(() => sel.focus(), 100);
+  // a client added in Bilanc a moment ago shows up without reloading the page
+  _refreshKlientet().then(changed => { if (changed) fill(); });
 }
 function closeNewOrderModal() { document.getElementById('new-order-modal').classList.remove('open'); }
 
@@ -6325,7 +6464,7 @@ async function startNewOrder() {
     return;
   }
   const klientId = sel.value;
-  const klientEmri = loadKlientet().find(k => k.id === klientId)?.emri || '';
+  const klientEmri = klientNameOf(klientId);
   // ID/Fatura allocation is deferred to save time. As of v12, fatura == order id
   // (same number), and we only want to consume a counter slot once the order is
   // actually persisted. Avoids "wasted" numbers from abandoned new-order forms.
@@ -6526,8 +6665,8 @@ async function _saveOrderToStorageInner() {
   // window._editingKlientId (set in openOrder/startNewOrder). When creating
   // new, look up by name. Update klient_emri snapshot to match current name.
   let klientId = window._editingKlientId || null;
-  if(!klientId) klientId = loadKlientet().find(k=>k.emri===kl)?.id || null;
-  const klientName = (klientId && loadKlientet().find(k=>k.id===klientId)?.emri) || kl;
+  if(!klientId) klientId = loadKlientet().find(k=>k.emri===kl && k.source!=='old')?.id || null;
+  const klientName = klientNameOf(klientId, kl) || kl;
   // Build a price snapshot at save time. Saved orders display prices FROM this
   // snapshot (not live Konfigurim) — so a price change later doesn't silently
   // change the totals on already-existing orders. The drift banner offers an
@@ -16382,11 +16521,9 @@ function renderKanban() {
 
   // Filter — match against current klient name (handles renames) AND the
   // snapshot (so legacy orders without klient_id still match).
-  const klientById = {};
-  loadKlientet().forEach(k => { klientById[k.id] = k; });
   const filtered = orders.filter(o => {
     if(!q) return true;
-    const liveName = (o.klient_id && klientById[o.klient_id]?.emri) || '';
+    const liveName = klientNameOf(o.klient_id);
     return (liveName.toLowerCase().includes(q)) ||
            ((o.klient_emri||'').toLowerCase().includes(q)) ||
            ((o.fatura||'').toLowerCase().includes(q));
@@ -16519,7 +16656,7 @@ function renderKbCard(order, state) {
     }).join('');
 
   const total = (!HIDE_PRICES && order.total) ? fmtALL(order.total)+' Lek' : '';
-  const liveName = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri) || order.klient_emri || '—';
+  const liveName = (order.klient_id && klientOf(order.klient_id)?.emri) || order.klient_emri || '—';
 
   // Workflow mini-strip: rendered from block_summaries (which include flags
   // enough to derive applicability) when the full blocks aren't on the
@@ -17229,7 +17366,7 @@ function _wfNextDeptAfter(block, currentDept) {
 
 function _wfDeptCardHtml(item, dept) {
   const { order, block, blockIdx } = item;
-  const liveName = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri)
+  const liveName = (order.klient_id && klientOf(order.klient_id)?.emri)
                     || order.klient_emri || '—';
   const dot = MAT_DOT_COLORS[block.type] || '#888';
   const totCope = (block.rows || []).reduce((s, r) => s + (parseInt(r.s) || 0), 0);
@@ -17352,7 +17489,7 @@ async function wfOpenBlockFromDept(orderId, blockIdx, deptId, siblingIdxs) {
     : null;
   const block = order.blocks[blockIdx];
   wfEnsureBlockWorkflow(block);
-  const liveName = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri)
+  const liveName = (order.klient_id && klientOf(order.klient_id)?.emri)
                     || order.klient_emri || '—';
   const orderNameEl = document.getElementById('wf-block-order-name');
   const blockNameEl = document.getElementById('wf-block-name');
@@ -17514,7 +17651,7 @@ function wfRenderOrderDetail() {
   const order = _wfState.order;
   if (!order) return;
   const ro = _wfIsReadOnly();
-  const liveName = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri) || order.klient_emri || '—';
+  const liveName = (order.klient_id && klientOf(order.klient_id)?.emri) || order.klient_emri || '—';
   document.getElementById('wf-order-title').textContent =
     `${liveName} · #${order.fatura || order.id || '—'} · ${order.data || '—'}`;
   // Column-status pills: hidden in read-only mode. Drag-drop on the Kanban
@@ -18025,7 +18162,7 @@ function _ptSnapshot(order, blockIdx) {
   const fatura = String(order.fatura || order.id);
   let klientEmri = order.klient_emri || '';
   try {
-    const k = order.klient_id && loadKlientet().find(x => x.id === order.klient_id);
+    const k = order.klient_id && klientOf(order.klient_id);
     if (k && k.emri) klientEmri = k.emri;
   } catch (_) {}
   return {
@@ -19071,7 +19208,7 @@ async function wfOpenBlock(blockIdx) {
   wfEnsureBlockWorkflow(block);
   // Header — sub-number "{fatura}-{1-based block index}" matches the
   // labelling used everywhere else (dept cards, PDF, order edit page).
-  const liveName = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri) || order.klient_emri || '—';
+  const liveName = (order.klient_id && klientOf(order.klient_id)?.emri) || order.klient_emri || '—';
   const subNo = blockIdx + 1;
   document.getElementById('wf-block-order-name').textContent = `${liveName} · #${order.fatura || order.id}-${subNo}`;
   document.getElementById('wf-block-name').textContent       = block.name || block.type || '—';
@@ -19209,7 +19346,7 @@ async function wfRenderBlockPdf(block) {
   }
   // Build a per-block PDF using the existing helper.
   const order  = _wfState.order;
-  const klient = (order.klient_id && loadKlientet().find(k => k.id === order.klient_id)?.emri) || order.klient_emri || 'Klient';
+  const klient = (order.klient_id && klientOf(order.klient_id)?.emri) || order.klient_emri || 'Klient';
   const fatura = order.fatura || order.id || '—';
   const data   = order.data || new Date().toISOString().split('T')[0];
   // buildMaterialsPDF reads from the top-level `blocks` array. That's a
