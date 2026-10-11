@@ -3672,6 +3672,27 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- MODAL: HYR NË INCO BILANC (when Bilanc refuses this tab)          -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="overlay" id="bl-modal">
+  <div class="modal" style="max-width:420px;">
+    <div class="mhead"><h2>Hyr në Inco Bilanc</h2><button class="mx" onclick="closeBilancLogin()">✕</button></div>
+    <div class="mbody">
+      <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px;">Materialet, klientët, projektet dhe faturat vijnë nga Inco Bilanc, që kërkon hyrje. Shkruaj fjalëkalimin e llogarisë tënde në Bilanc (zakonisht i njëjti si këtu).</div>
+      <div class="form-grid">
+        <div class="fg full"><label>Email</label><input type="email" id="bl-email" autocomplete="username"></div>
+        <div class="fg full"><label>Fjalëkalimi</label><input type="password" id="bl-pass" autocomplete="current-password" onkeydown="if(event.key==='Enter'){event.preventDefault();doBilancLogin();}"></div>
+      </div>
+      <div id="bl-error" style="display:none;margin-top:10px;padding:8px 10px;border-radius:6px;background:#fee;color:#c33;font-size:12px;"></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost" onclick="closeBilancLogin()">Më vonë</button>
+      <button class="btn btn-green" id="bl-btn" onclick="doBilancLogin()">Hyr në Bilanc</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- MODAL: POROSI E RE (client selector before opening form)        -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <div class="overlay" id="new-order-modal">
@@ -4707,14 +4728,11 @@ function _rebuildKlientet() {
   window._KLIENTET_SOURCE = 'bilanc';
 }
 
-// Read Bilanc's partners and the client links it remembered (read-only).
+// Read Bilanc's partners and the client links it remembered (through the bridge, signed in).
 async function _loadBilancClientData() {
-  const app = (firebase.apps || []).find(a => a.name === 'bilanc') || firebase.initializeApp(BILANC_FIREBASE_CONFIG, 'bilanc');
-  const company = app.firestore().collection('companies').doc(BILANC_COMPANY_ID);
-  const read = Promise.all([company.collection('partners').get(), company.get()]);
-  const [ps, cs] = await Promise.race([read, new Promise((_, rej) => setTimeout(() => rej(new Error('koha mbaroi')), 15000))]);
-  const settings = (cs && cs.exists && cs.data() && cs.data().settings) || {};
-  const data = { partners: ps.docs.map(d => ({ ...d.data(), id: d.id })), links: (settings.service && settings.service.clients) || {} };
+  const read = _bilancReady().then(b => Promise.all([b.readCollection('partners'), b.readClientLinks()]));
+  const [partners, links] = await Promise.race([read, new Promise((_, rej) => setTimeout(() => rej(new Error('koha mbaroi')), 20000))]);
+  const data = { partners: partners || [], links: links || {} };
   if (!data.partners.some(p => p && p.type !== 'supplier')) throw new Error('asnjë klient në Bilanc');
   return data;
 }
@@ -4728,6 +4746,7 @@ async function bootLoadKlientet() {
   } catch (e) {
     console.warn('[INCO] Bilanc clients not loaded, using this app\'s list:', e);
     _BILANC_CLIENT_DATA = null;
+    _bilancAccessProblem(e);
     setTimeout(() => shellToast('Klientët nga Bilanc nuk u ngarkuan (' + (e.message || 'rrjeti') + '). Rifresko faqen.', 'err'), 1800);
   }
   _klientetRefreshAt = Date.now();
@@ -5562,16 +5581,131 @@ function _bilancToastResult(r) {
   if (msg) _bilancToast('Bilanc · ' + msg, warn ? '' : 'ok', warn ? 9000 : 5000);
 }
 
+// ── Bilanc session ───────────────────────────────────────────────
+// Inco Bilanc's database answers only signed-in accounts that have access
+// (Bilanc → Konfigurime → Përdoruesit). The bridge (Bilanc's own code, loaded
+// from incobilanc.web.app) holds the Bilanc session of this tab: doLogin signs
+// it in with the same email and password typed here, so one login opens both
+// apps, and logging out closes both. Every Bilanc read (materials, clients,
+// projects) and write (invoices) goes through the bridge and waits for that
+// sign-in. When Bilanc refuses a request (a tab signed in before this existed,
+// or a different Bilanc password), the "Hyr në Bilanc" dialog asks once for
+// the Bilanc password. The session lives as long as the tab, like this app's.
+let _bilancLoginPromise = null;   // the sign-in started by doLogin / the dialog
+let _bilancPromptShown = false;   // ask at most once per page load
+
+function _bilancAuthErrorText(err) {
+  switch (err && err.code) {
+    case 'auth/invalid-email':       return 'Email i pavlefshëm.';
+    case 'auth/user-disabled':       return 'Llogaria është çaktivizuar.';
+    case 'auth/user-not-found':      return 'Llogaria nuk ekziston në Bilanc.';
+    case 'auth/wrong-password':      return 'Fjalëkalimi është i gabuar.';
+    case 'auth/invalid-credential':  return 'Email ose fjalëkalim i gabuar (llogaria e Bilanc).';
+    case 'auth/too-many-requests':   return 'Shumë tentativa. Provo më vonë.';
+    case 'auth/network-request-failed': return 'Lidhja me internetin dështoi.';
+    case 'auth/configuration-not-found':
+    case 'auth/operation-not-allowed': return 'Hyrja nuk është aktivizuar ende në Bilanc.';
+    default: return 'Gabim gjatë hyrjes në Bilanc.';
+  }
+}
+
+// Sign the bridge in to Bilanc (any previous Bilanc session of this tab is closed first).
+function _bilancStartLogin(email, pass) {
+  _bilancLoginPromise = _bilancLoadBridge()
+    .then(async b => {
+      if (typeof b.signIn !== 'function') throw new Error('lidhja me Bilanc është e vjetër');
+      try { await b.signOut(); } catch (_) { /* nothing to close */ }
+      return b.signIn(email, pass);
+    })
+    .then(e => ({ ok: true, email: e }))
+    .catch(err => {
+      console.warn('[INCO] Bilanc sign-in failed:', err && err.code, err && err.message);
+      return { ok: false, code: err && err.code };
+    });
+  return _bilancLoginPromise;
+}
+
+// The bridge, once a pending sign-in has finished (every Bilanc call goes through here).
+async function _bilancReady() {
+  const bridge = await _bilancLoadBridge();
+  if (_bilancLoginPromise) await _bilancLoginPromise;
+  return bridge;
+}
+
+// Close the Bilanc session of this tab (logout, refused account, failed login).
+async function _bilancSignOutQuiet() {
+  _bilancLoginPromise = null;
+  try {
+    const b = await Promise.race([_bilancLoadBridge(), new Promise((_, rej) => setTimeout(() => rej(new Error('koha mbaroi')), 5000))]);
+    if (b && typeof b.signOut === 'function') await b.signOut();
+  } catch (_) { /* nothing to close */ }
+}
+
+function _isBilancDenied(e) {
+  return !!e && (e.code === 'permission-denied' || /missing or insufficient permissions|permission-denied/i.test(String(e.message || '')));
+}
+
+// Bilanc refused a request: ask for the Bilanc password, or explain that the
+// signed-in account has no access. Returns true when it was an access problem.
+async function _bilancAccessProblem(e) {
+  if (!_isBilancDenied(e)) return false;
+  if (_bilancPromptShown) return true;
+  _bilancPromptShown = true;
+  let who = '';
+  try { who = await (await _bilancLoadBridge()).signedInEmail(); } catch (_) { /* unknown */ }
+  if (who) _bilancToast('Bilanc: llogaria ' + who + ' nuk ka akses. Pronari e shton te Bilanc → Konfigurime → Përdoruesit.', 'err', 12000);
+  else openBilancLogin();
+  return true;
+}
+
+function openBilancLogin() {
+  const em = document.getElementById('bl-email'), pw = document.getElementById('bl-pass'), er = document.getElementById('bl-error');
+  if (!em || !pw) return;
+  em.value = (auth.currentUser && auth.currentUser.email) || em.value || '';
+  pw.value = '';
+  if (er) er.style.display = 'none';
+  document.getElementById('bl-modal').classList.add('open');
+  setTimeout(() => (em.value ? pw : em).focus(), 100);
+}
+function closeBilancLogin() { document.getElementById('bl-modal').classList.remove('open'); }
+
+async function doBilancLogin() {
+  const email = (document.getElementById('bl-email').value || '').trim();
+  const pass = document.getElementById('bl-pass').value || '';
+  const er = document.getElementById('bl-error'), btn = document.getElementById('bl-btn');
+  const fail = (msg) => { er.textContent = msg; er.style.display = 'block'; };
+  if (!email || !pass) { fail('Plotëso email dhe fjalëkalimin.'); return; }
+  btn.disabled = true; btn.textContent = 'Po hyhet…';
+  try {
+    const b = await _bilancLoadBridge();
+    await b.signIn(email, pass);
+    _bilancLoginPromise = Promise.resolve({ ok: true, email });
+    closeBilancLogin();
+    if (typeof hasUnsavedChanges === 'function' && hasUnsavedChanges()) {
+      // never reload over unsaved work: the user saves, the next reload loads Bilanc's data
+      _bilancToast('U lidh me Bilanc ✓ Ruaj porosinë, pastaj rifresko faqen që të ngarkohen materialet dhe klientët e Bilanc.', 'ok', 10000);
+    } else {
+      shellToast('U lidh me Bilanc ✓', 'ok');
+      setTimeout(() => location.reload(), 700);
+    }
+  } catch (err) {
+    fail(_bilancAuthErrorText(err));
+  } finally {
+    btn.disabled = false; btn.textContent = 'Hyr në Bilanc';
+  }
+}
+
 async function bilancSyncOrder(order) {
   if (!order || order.id == null) return null;
   const quiet = isPartner();   // partners don't see the accounting side
   try {
-    const bridge = await _bilancLoadBridge();
+    const bridge = await _bilancReady();
     const r = await bridge.syncServiceOrder(_bilancOrderPayload(order));
     if (!quiet && r) _bilancToastResult(r);   // silent when nothing changed
     return r;
   } catch (e) {
     console.error('[INCO] Bilanc invoice failed:', e);
+    if (await _bilancAccessProblem(e)) return null;
     if (!quiet) _bilancToast('Bilanc: faturat nuk u krijuan (' + (e.message || 'rrjeti') + '). Ruaj porosinë sërish për ta provuar.', 'err', 9000);
     return null;
   }
@@ -5596,9 +5730,7 @@ function _isIncoFurnitureName(name) {
 
 async function _bilancProjectsData(fresh) {
   if (!fresh && _bilancProjCache.data && Date.now() - _bilancProjCache.at < 60 * 1000) return _bilancProjCache.data;
-  const app = (firebase.apps || []).find(a => a.name === 'bilanc') || firebase.initializeApp(BILANC_FIREBASE_CONFIG, 'bilanc');
-  const snap = await app.firestore().collection('companies').doc(BILANC_COMPANY_ID).collection('projects').get();
-  const data = { projects: snap.docs.map(d => ({ ...d.data(), id: d.id })) };
+  const data = { projects: await (await _bilancReady()).readCollection('projects') };
   _bilancProjCache = { at: Date.now(), data };
   return data;
 }
@@ -5641,6 +5773,7 @@ async function bilancLoadProjectSelect() {
     if (hint) hint.textContent = list.length ? '' : 'Nuk ka projekte të hapura: krijoje te Bilanc → Projektet';
   } catch (e) {
     console.warn('[INCO] Bilanc projects not loaded:', e);
+    _bilancAccessProblem(e);
     if (hint) hint.textContent = 'Projektet e Bilanc nuk u ngarkuan';
   }
 }
@@ -5672,12 +5805,13 @@ function _bilancProjectOk() {
 async function bilancRemoveOrder(id) {
   const quiet = isPartner();
   try {
-    const bridge = await _bilancLoadBridge();
+    const bridge = await _bilancReady();
     const r = await bridge.removeServiceOrder(id, { user: _bilancUser() });
     if (!quiet && r) _bilancToastResult(r);
     return r;
   } catch (e) {
     console.error('[INCO] Bilanc invoice delete failed:', e);
+    if (await _bilancAccessProblem(e)) return null;
     if (!quiet) _bilancToast('Bilanc: faturat e porosisë nuk u fshinë (' + (e.message || 'rrjeti') + '). Fshiji me dorë te Bilanc.', 'err', 9000);
     return null;
   }
@@ -6991,6 +7125,7 @@ async function bootApp() {
       // re-runs bootApp.  Without this the single-shot guard locks the
       // user out of bootApp forever after one unauthorized try.
       _bootStarted = false;
+      await _bilancSignOutQuiet();
       try { await auth.signOut(); } catch (e) { console.error('[INCO] signOut after unauthorized failed:', e); }
       splash.classList.add('hidden');
       setTimeout(() => splash.style.display = 'none', 300);
@@ -7095,6 +7230,8 @@ async function doLogin() {
   $loginBtn().disabled = true;
   $loginBtn().textContent = 'Po hyhet…';
   try {
+    // Bilanc first, with the same credentials: the boot's Bilanc reads wait for it
+    _bilancStartLogin(email, pass);
     await auth.signInWithEmailAndPassword(email, pass);
     // onAuthStateChanged will hide the overlay and start the app
   } catch (err) {
@@ -7111,6 +7248,7 @@ async function doLogin() {
     errEl.textContent = msg;
     errEl.classList.add('visible');
     console.warn('[INCO auth] login failed:', err.code, err.message);
+    _bilancSignOutQuiet();
   } finally {
     $loginBtn().disabled = false;
     $loginBtn().textContent = 'Hyr';
@@ -7159,6 +7297,7 @@ document.addEventListener('DOMContentLoaded', () => {
 async function doLogout() {
   if (!confirm('Dëshironi të dilni nga llogaria?')) return;
   try {
+    await _bilancSignOutQuiet();
     await auth.signOut();
     // onAuthStateChanged will show the overlay; force a reload so all the
     // in-memory caches are wiped and the next user starts fresh.
@@ -7212,16 +7351,9 @@ window.addEventListener('beforeunload', (e) => {
 // article (b.bilancItemId): renaming an article in Bilanc never strands an
 // order. The service app's own konfig catalog stays loaded as
 // _LEGACY_CATALOG so orders made before the switch still resolve. If Bilanc
-// cannot be read, the app keeps working with the konfig catalog.
-const BILANC_FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyDqJMgvoPHrkOAiQEQiVX62CcoTCoqp2yo',
-  authDomain: 'incobilanc.firebaseapp.com',
-  projectId: 'incobilanc',
-  storageBucket: 'incobilanc.firebasestorage.app',
-  messagingSenderId: '219464262218',
-  appId: '1:219464262218:web:54850d7744cb8e4e437cb3',
-};
-const BILANC_COMPANY_ID = 'inco-group';
+// cannot be read, the app keeps working with the konfig catalog. Bilanc is
+// read through the bridge, signed in with the user's Bilanc account (see
+// "Bilanc session" in the BILANC LINK block).
 const BILANC_ITEMS_URL = 'https://incobilanc.web.app/items';
 let _LEGACY_CATALOG = null;          // the konfig catalog (orders from before the switch)
 let _BILANC_ITEM_INDEX = {};         // Bilanc article id → { materialId, formatId }
@@ -7303,14 +7435,13 @@ function buildCatalogFromBilancItems(items) {
   };
 }
 
-// Read the articles from Bilanc (a second, read-only Firebase app) and make
-// them the catalog. Never throws: on any problem the konfig catalog stays.
+// Read the articles from Bilanc (through the bridge, signed in) and make them
+// the catalog. Never throws: on any problem the konfig catalog stays.
 async function applyBilancCatalog() {
   try {
-    const app = (firebase.apps || []).find(a => a.name === 'bilanc') || firebase.initializeApp(BILANC_FIREBASE_CONFIG, 'bilanc');
-    const read = app.firestore().collection('companies').doc(BILANC_COMPANY_ID).collection('items').get();
-    const snap = await Promise.race([read, new Promise((_, rej) => setTimeout(() => rej(new Error('koha mbaroi')), 15000))]);
-    const cat = buildCatalogFromBilancItems(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    const read = _bilancReady().then(b => b.readCollection('items'));
+    const items = await Promise.race([read, new Promise((_, rej) => setTimeout(() => rej(new Error('koha mbaroi')), 20000))]);
+    const cat = buildCatalogFromBilancItems(items || []);
     if (!cat.materials.length) throw new Error('asnjë material i njohur te artikujt');
     _LEGACY_CATALOG = { formats: _PRICES_CACHE.formats || [], materials: _PRICES_CACHE.materials || [], tenies: _PRICES_CACHE.tenies || [] };
     _PRICES_CACHE.formats = cat.formats;
@@ -7325,6 +7456,7 @@ async function applyBilancCatalog() {
   } catch (e) {
     console.warn('[INCO] Bilanc articles not loaded, using konfig:', e);
     window._CATALOG_SOURCE = 'konfig';
+    _bilancAccessProblem(e);
     setTimeout(() => shellToast('Materialet nga Bilanc nuk u ngarkuan (' + (e.message || 'rrjeti') + '). Po përdoret konfigurimi i vjetër.', 'err'), 1500);
   }
 }
