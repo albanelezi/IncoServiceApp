@@ -3053,6 +3053,8 @@ body.hide-prices #btn-shkarko-fatura,
 body.hide-prices #btn-printo-fatura { display: none !important; }
 /* Materials come from the articles of Inco Bilanc: Konfigurim shows them
    read-only (they are added and changed in Bilanc). Workers stay editable. */
+/* Konfigurim has only Punëtorët: materials (and clients) are managed in Inco Bilanc. */
+.cfg-tab:not([data-cfgtab="workers"]), #cfg-mat-pane, #cfg-tenie-pane, #cfg-footer-bar { display: none !important; }
 .cfg-bilanc-note { display: none; margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface2); font-size: 12.5px; line-height: 1.5; color: var(--text2, var(--text)); }
 .cfg-bilanc-note a { color: var(--gold); font-weight: 700; text-decoration: none; margin-left: 6px; }
 .cfg-bilanc-note .cfg-bilanc-skipped { display: block; margin-top: 4px; color: #b45309; }
@@ -3105,7 +3107,6 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
     
   </div>
   <nav class="app-nav">
-    <button class="nav-btn" id="nav-klient"   onclick="goPage('pg-klient')">Klientët</button>
     <button class="nav-btn" id="nav-porosite" onclick="goPage('pg-porosite')">Të gjitha Porosite</button>
     <button class="nav-btn nav-new"            onclick="openNewOrderModal()">+ Porosi e Re</button>
     <button class="nav-btn" id="nav-kanban"    onclick="goPage('pg-kanban')">Menaxhimi</button>
@@ -3126,27 +3127,11 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
       <div class="landing-sub">Sistemi i Menaxhimit të Prodhimit</div>
     </div>
     <div class="landing-btns">
-      <button class="lbtn lbtn-green" onclick="goPage('pg-klient')">📁 &nbsp;Klientët</button>
       <button class="lbtn lbtn-blue"  onclick="goPage('pg-porosite')">📋 &nbsp;Të gjitha Porosite</button>
       <button class="lbtn lbtn-green" onclick="openNewOrderModal()">✚ &nbsp;Porosi e Re</button>
       <button class="lbtn lbtn-blue"  onclick="goPage('pg-kanban')">📊 &nbsp;Menaxhimi</button>
       <button class="lbtn lbtn-ghost" onclick="goPage('pg-cfg')">⚙ &nbsp;Konfigurim</button>
     </div>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- PAGE: KLIENTËT                                                   -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<div id="pg-klient" class="page">
-  <div class="page-wrap">
-    <div class="ph">
-      <div><h1>KLIENTËT</h1><div class="ph-sub" id="k-count">—</div></div>
-      <div class="sp"></div>
-      <button class="btn btn-green" onclick="openKModal()">+ Klient i Ri</button>
-    </div>
-    <div class="srch"><input type="text" id="k-srch" placeholder="Kërko klient…" oninput="renderKlientet()"></div>
-    <div class="folder-grid" id="folder-grid"></div>
   </div>
 </div>
 
@@ -3483,7 +3468,8 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
             </div>
           </div>
           <div class="field"><label>Klienti</label><input id="klienti" type="text" placeholder="Emri i klientit" readonly
-            style="background:var(--surface3,#eef0f4);border:1px solid var(--border);border-radius:7px;color:var(--text2,#5a5f73);cursor:default;"></div>
+            style="background:var(--surface3,#eef0f4);border:1px solid var(--border);border-radius:7px;color:var(--text2,#5a5f73);cursor:default;">
+            <button type="button" id="klient-link-btn" class="btn btn-xs admin-only" style="display:none;margin-top:5px;" title="Ky klient i vjetër nuk ka klient në Inco Bilanc" onclick="openKLinkModal(window._editingKlientId)">🔗 Lidh me klientin e Bilanc</button></div>
           <div class="field"><label>Shënim Klienti</label><input id="klient-note" type="text" maxlength="140" placeholder="Shënim (opsional)"
             style="border-radius:7px;"></div>
           <div class="field bilanc-project-field" style="display:none;"><label>Projekti (Bilanc) <span style="color:var(--red)">*</span></label>
@@ -3665,38 +3651,6 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- MODAL: KLIENT I RI / EDITO KLIENTIN                             -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<div class="overlay" id="k-modal">
-  <div class="modal">
-    <div class="mhead"><h2 id="km-title">Klient i Ri</h2><button class="mx" onclick="closeKModal()">✕</button></div>
-    <div class="mbody">
-      <div class="form-grid">
-        <div class="fg full" style="font-size:11px;color:var(--muted);line-height:1.4;">Klientët ruhen te Inco Bilanc: një listë e vetme për të dy programet.</div>
-        <div class="fg full"><label>Emri *</label><input type="text" id="mk-emri" placeholder="Emri i plotë…"></div>
-        <div class="fg"><label>Telefoni</label><input type="text" id="mk-tel" placeholder="+355…"></div>
-        <div class="fg"><label>Email</label><input type="email" id="mk-email" placeholder="email@…"></div>
-        <div class="fg full"><label>Adresa</label><input type="text" id="mk-adr" placeholder="Adresa…"></div>
-        <div class="fg full admin-only" id="mk-partner-wrap">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">
-            <input type="checkbox" id="mk-is-partner" style="width:16px;height:16px;cursor:pointer;accent-color:#1a4a8c;">
-            <span style="font-weight:600;color:var(--text);">Ky klient është PARTNER</span>
-          </label>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;">
-            Aktivizoje për të dhënë akses partner-i.  Partneri logohet me e-mailin
-            e këtij klienti dhe sheh vetëm klientët + porositë që krijon vetë.
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="mfoot">
-      <button class="btn btn-ghost" onclick="closeKModal()">Anulo</button>
-      <button class="btn btn-green" id="mk-save-btn" onclick="saveKlient()">💾 &nbsp;Ruaj</button>
-    </div>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- MODAL: LIDH KLIENTIN E VJETËR ME KLIENTIN E BILANC               -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <div class="overlay" id="kl-modal">
@@ -3712,7 +3666,6 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
     </div>
     <div class="mfoot">
       <button class="btn btn-ghost" onclick="closeKLinkModal()">Anulo</button>
-      <button class="btn btn-blue" onclick="createBilancFromOld()" title="Krijon në Bilanc një klient me emrin dhe të dhënat e këtij klienti, pastaj e lidh">+ Krijo në Bilanc</button>
       <button class="btn btn-green" onclick="saveKLink()">🔗 &nbsp;Lidh</button>
     </div>
   </div>
@@ -3731,7 +3684,7 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
           <option value="">— Zgjidh klientin —</option>
         </select>
         <div id="nom-klient-err" style="display:none;margin-top:6px;font-size:11px;color:var(--red);font-weight:600">⚠ Zgjidh klientin nga lista</div>
-        <div style="margin-top:8px;font-size:11px;color:var(--muted)">ose <span style="color:var(--green);cursor:pointer;font-weight:600" onclick="closeNewOrderModal();openKModal()">+ shto klient të ri</span></div>
+        <div style="margin-top:8px;font-size:11px;color:var(--muted)">Klientët shtohen te <b>Inco Bilanc → Klientët</b>.</div>
       </div>
     </div>
     <div class="mfoot">
@@ -3983,6 +3936,9 @@ async function _restoreLastView() {
 
 // ═══════════════════════════════════════════════════════════════
 function goPage(id) {
+  // Clients are managed in Inco Bilanc: the old Klientët page is gone (a
+  // restored session or a stray call lands on the orders list instead).
+  if (id === 'pg-klient') id = 'pg-porosite';
   // Unsaved-changes guard: when the user navigates away from the order form
   // and there's a real diff vs. the baseline, ask before leaving. Internal
   // flows (openOrder, startNewOrder, post-save, post-delete) set a transient
@@ -4011,9 +3967,8 @@ function goPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   document.querySelectorAll('.nav-btn[id]').forEach(b => b.classList.remove('active'));
-  const map = { 'pg-klient':'nav-klient', 'pg-porosite':'nav-porosite', 'pg-cfg':'nav-cfg', 'pg-kanban':'nav-kanban' };
+  const map = { 'pg-porosite':'nav-porosite', 'pg-cfg':'nav-cfg', 'pg-kanban':'nav-kanban' };
   if(map[id]) document.getElementById(map[id])?.classList.add('active');
-  if(id==='pg-klient')    { renderKlientet(); _refreshKlientet().then(changed => { if (changed) renderKlientet(); }); }
   if(id==='pg-porosite')  renderAllOrders();
   if(id==='pg-cfg')       { initKonfigDraft(); fillPriceFields(); }
   if(id==='pg-kanban')    {
@@ -4076,14 +4031,6 @@ function escHtml(s) {
 
 function kanonName(s) {
   return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
-// Returns the existing client with this name, or null. excludeId lets the
-// edit modal skip itself (renaming a client to its current name is fine).
-function findKlientByName(name, excludeId) {
-  const k = kanonName(name);
-  if(!k) return null;
-  return loadKlientet().find(x => x.source !== 'old' && x.id !== excludeId && kanonName(x.emri) === k) || null;
 }
 
 // Returns existing material that matches identity dimensions, or null.
@@ -4660,10 +4607,10 @@ function applyRoleUi() {
 
 // ═══ CLIENTS FROM INCO BILANC ═══════════════════════════════════════
 // Bilanc's clients (its partners that are not suppliers) are the ONLY client
-// list, shared by both apps: the Klientët page, the new-order picker and every
-// client name come from Bilanc, and "Klient i Ri" / "Edito" write to Bilanc
-// (through the bridge, so Bilanc's history records it). New orders store the
-// Bilanc client id in klient_id.
+// list, shared by both apps: the new-order picker and every client name come
+// from Bilanc. Clients are added, edited and deleted ONLY in Bilanc (this app
+// has no Klientët page and no client form). New orders store the Bilanc client
+// id in klient_id.
 //
 // This app's own `klientet` collection stays as it is (nothing is deleted):
 // older orders carry those old ids, and partner logins live there (isPartner +
@@ -4672,11 +4619,11 @@ function applyRoleUi() {
 // link Bilanc remembered when it billed one of its orders, else by the same
 // name. Its orders then show the Bilanc name and count under that client. Old
 // clients without a Bilanc client stay visible with their orders ("Pa lidhje me
-// Bilanc") and can be linked by hand; they can't get new orders. No order is
-// ever rewritten or deleted by any of this.
+// Bilanc") and can be linked by hand from one of their orders; they can't get
+// new orders. No order is ever rewritten or deleted by any of this.
 //
 // If Bilanc can't be reached at boot, the app falls back to its own list (as
-// before the switch) and adding/editing clients is blocked until a reload.
+// before the switch) and linking is blocked until a reload.
 let _KLIENTET_CACHE = [];          // what the app shows: Bilanc clients + unlinked old clients
 let _SERVICE_KLIENTET = [];        // this app's klientet docs (old clients + partner logins)
 let _KLIENT_ALIAS = {};            // old client id → Bilanc client id
@@ -4800,41 +4747,12 @@ async function _refreshKlientet() {
   return sig() !== before;
 }
 
-// Adding / editing clients writes to Bilanc: blocked while Bilanc is not loaded.
+// Linking needs Bilanc's clients: blocked while they are not loaded.
 function _klientetEditable() {
   if (window._KLIENTET_SOURCE === 'bilanc') return true;
   shellToast('Klientët e Bilanc nuk janë ngarkuar: rifresko faqen', 'err');
   return false;
 }
-
-let kEditId = null;
-
-function openKModal(id=null) {
-  if (!_klientetEditable()) return;
-  const k0 = id ? klientOf(id) : null;
-  if (k0 && k0.source === 'old') { openKLinkModal(k0.id); return; }
-  if (k0) id = k0.id;
-  kEditId = id;
-  document.getElementById('km-title').textContent = id ? 'Edito Klientin' : 'Klient i Ri';
-  ['mk-emri','mk-tel','mk-email','mk-adr'].forEach(x => document.getElementById(x).value = '');
-  // Partner checkbox default = unchecked.  Only the admin sees this row
-  // (.admin-only CSS hides it for partners), so partners can't self-promote.
-  const cbPartner = document.getElementById('mk-is-partner');
-  if (cbPartner) cbPartner.checked = false;
-  if(id) {
-    const k = loadKlientet().find(k => k.id === id);
-    if(k) {
-      document.getElementById('mk-emri').value = k.emri || '';
-      document.getElementById('mk-tel').value  = k.telefoni || '';
-      document.getElementById('mk-email').value = k.email || '';
-      document.getElementById('mk-adr').value  = k.adresa || '';
-      if (cbPartner) cbPartner.checked = k.isPartner === true;
-    }
-  }
-  document.getElementById('k-modal').classList.add('open');
-  setTimeout(() => document.getElementById('mk-emri').focus(), 100);
-}
-function closeKModal() { document.getElementById('k-modal').classList.remove('open'); kEditId = null; }
 
 // ─── partner_index lookup-table maintenance ────────────────────────
 // The Firestore security rules read /partner_index/{email} to resolve
@@ -4881,106 +4799,11 @@ async function _backfillPartnerIndex() {
   console.log('[INCO] partner_index backfilled:', ok, 'ok,', fail, 'failed,', partners.length, 'total');
 }
 
-// Save the client form into Bilanc (the only client list) through the bridge.
-// The partner flag is this app's own (logins): it is kept on this app's
-// klientet row + partner_index, see _syncPartnerLogin.
-async function saveKlient() {
-  if (!_klientetEditable()) return;
-  const emri = document.getElementById('mk-emri').value.trim();
-  if(!emri) { shellToast('Emri është i detyrueshëm','err'); return; }
-  // Duplicate-name check (case-insensitive, whitespace-collapsed). On edit, exclude self.
-  // Bilanc checks it again when it saves.
-  const dup = findKlientByName(emri, kEditId || undefined);
-  if(dup) { shellToast(`Klienti "${dup.emri}" ekziston tashmë`,'err'); return; }
-  // The isPartner checkbox is admin-only (CSS hides it on partners), but
-  // also enforce here: a partner can never flip another klient to partner.
-  const cbPartner = document.getElementById('mk-is-partner');
-  const wantsPartner = !!(isAdmin() && cbPartner && cbPartner.checked);
-  const editId = kEditId;
-  const btn = document.getElementById('mk-save-btn');
-  if (btn) btn.disabled = true;
-  let res = null;
-  try {
-    const bridge = await _bilancLoadBridge();
-    if (typeof bridge.saveServiceClient !== 'function') throw new Error('lidhja me Bilanc është e vjetër, rifresko faqen');
-    res = await bridge.saveServiceClient({
-      id: editId || undefined,
-      name: emri,
-      phone:   document.getElementById('mk-tel').value.trim(),
-      email:   document.getElementById('mk-email').value.trim(),
-      address: document.getElementById('mk-adr').value.trim(),
-      // createdBy: admin-created → 'admin'; partner-created → their klient id.
-      // Drives every filter (klient grid, orders list, new-order dropdown)
-      // so partners see only what they themselves added to the system.
-      createdBy: isPartner() ? window._ROLE.partnerKlientId : 'admin',
-    }, { user: _bilancUser() });
-  } catch (e) {
-    console.error('[INCO] klient save (Bilanc) failed:', e);
-    res = { ok: false, error: 'Gabim: klienti nuk u ruajt në Bilanc (' + (e.message || 'rrjeti') + ')' };
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-  if (!res || !res.ok) { shellToast((res && res.error) || 'Klienti nuk u ruajt', 'err'); return; }
-  // Keep the local copy of Bilanc's partners in step, then rebuild the list.
-  const p = res.partner;
-  const parts = _BILANC_CLIENT_DATA.partners;
-  const at = parts.findIndex(x => x.id === p.id);
-  if (at >= 0) parts[at] = p; else parts.push(p);
-  _rebuildKlientet();
-  if (isAdmin()) {
-    try { await _syncPartnerLogin(klientOf(p.id), wantsPartner); }
-    catch (e) {
-      console.warn('[INCO] partner login sync failed:', e);
-      shellToast('Klienti u ruajt, por aksesi i partnerit jo: ' + (e.message || 'rrjeti'), 'err');
-      closeKModal(); renderKlientet();
-      return;
-    }
-  }
-  shellToast(editId ? 'Klienti u përditësua në Bilanc ✓' : 'Klienti u shtua në Bilanc ✓');
-  closeKModal(); renderKlientet();
-}
-
-// Partner logins stay in this app (the rules read partner_index → klientet).
-// The row is the client's existing login row (e.g. an old client linked to the
-// Bilanc client), else a new row under the Bilanc id. Only isPartner and email
-// are changed on an existing row.
-async function _syncPartnerLogin(k, want) {
-  if (!k) return;
-  const row = _klientLoginRow(k) || _SERVICE_KLIENTET.find(r => r && r.id === k.id) || null;
-  const email = String(k.email || '').trim();
-  const put = async (next) => {
-    await db.collection('klientet').doc(next.id).set(next);
-    const i = _SERVICE_KLIENTET.findIndex(r => r && r.id === next.id);
-    if (i >= 0) _SERVICE_KLIENTET[i] = next; else _SERVICE_KLIENTET.push(next);
-  };
-  if (want) {
-    if (!email) throw new Error('partneri duhet të ketë email');
-    const prevEmail = row && row.isPartner ? String(row.email || '') : '';
-    if (row && row.isPartner && prevEmail.toLowerCase().trim() === email.toLowerCase()) {
-      await _writePartnerIndex(row.id, email);   // idempotent
-    } else {
-      const next = row ? { ...row, isPartner: true, email }
-        : { id: k.id, emri: k.emri, telefoni: k.telefoni || '', email, adresa: k.adresa || '', isPartner: true, createdBy: 'admin', bilancId: k.id };
-      await put(next);
-      await _writePartnerIndex(next.id, email);
-      if (prevEmail && prevEmail.toLowerCase().trim() !== email.toLowerCase()) await _deletePartnerIndex(prevEmail);
-    }
-  } else if (row && row.isPartner) {
-    await put({ ...row, isPartner: false });
-    await _deletePartnerIndex(row.email);
-  }
-  _rebuildKlientet();
-}
-
-// Clients live in Inco Bilanc: they are deleted there (Bilanc → Klientët),
-// never here, and deleting a client never touches its orders.
-function delKlientById() {
-  shellToast('Klientët fshihen te Inco Bilanc → Klientët. Porositë nuk preken.', 'err');
-}
-
 // ── Old clients without a Bilanc client: link them by hand ──────────
-// Only the link (klientet.bilancId) is stored on the old client's row;
-// its orders are not changed, they just show under the Bilanc client.
+// An order of such a client shows "🔗 Lidh me klientin e Bilanc" under the
+// client name (admin). Only the link (klientet.bilancId) is stored on the old
+// client's row; its orders are not changed, they just show under the Bilanc
+// client from then on.
 let _klLinkId = null;
 
 // 0…1, how alike two names are (edit distance on the letters and digits).
@@ -5039,88 +4862,22 @@ async function saveKLink(targetId) {
   const row = _SERVICE_KLIENTET.find(r => r && r.id === oldId);
   if (row) row.bilancId = target;
   _rebuildKlientet();
-  closeKLinkModal(); renderKlientet();
+  closeKLinkModal();
+  // the open order shows its client's Bilanc name from now on
+  if (_klientKey(window._editingKlientId) === target) {
+    const f = document.getElementById('klienti');
+    if (f) f.value = klientNameOf(target);
+  }
+  _klientLinkUi();
   shellToast(`U lidh me "${klientNameOf(target)}" ✓`);
 }
 
-// The old client has no Bilanc client yet: create it in Bilanc with the same details, then link.
-async function createBilancFromOld() {
-  const old = _SERVICE_KLIENTET.find(r => r && r.id === _klLinkId);
-  if (!old) return;
-  let res = null;
-  try {
-    const bridge = await _bilancLoadBridge();
-    if (typeof bridge.saveServiceClient !== 'function') throw new Error('lidhja me Bilanc është e vjetër, rifresko faqen');
-    res = await bridge.saveServiceClient({ name: old.emri, phone: old.telefoni || '', email: old.email || '', address: old.adresa || '', createdBy: 'admin' }, { user: _bilancUser() });
-  } catch (e) {
-    res = { ok: false, error: 'Gabim: klienti nuk u krijua në Bilanc (' + (e.message || 'rrjeti') + ')' };
-  }
-  if (!res || !res.ok) { shellToast(((res && res.error) || 'Klienti nuk u krijua') + ' — zgjidhe te lista.', 'err'); return; }
-  _BILANC_CLIENT_DATA.partners.push(res.partner);
-  _rebuildKlientet();
-  await saveKLink(res.partner.id);
-}
-
-function renderKlientet() {
-  const q = (document.getElementById('k-srch')?.value || '').toLowerCase();
-  // Orders count under the client they belong to (old ids → their Bilanc client).
-  const cnt = {};
-  for (const o of loadOrders()) { const key = _klientKey(o.klient_id); if (key) cnt[key] = (cnt[key] || 0) + 1; }
-  // Role filter: partner sees only klients they created (+ themselves).
-  // Bilanc's clients first, then the old clients not linked to one (only those
-  // with orders). Alphabetical by name (locale-aware so Albanian-specific
-  // characters like ç/ë sort where the operator expects them, case-insensitive).
-  const klientet = loadKlientet()
-    .filter(k => _ownsKlient(k))
-    .filter(k => k.source !== 'old' || cnt[k.id])
-    .filter(k => !q || (k.emri || '').toLowerCase().includes(q))
-    .sort((a, b) => ((a.source === 'old') - (b.source === 'old'))
-      || (a.emri || '').localeCompare((b.emri || ''), 'sq', { sensitivity: 'base' }));
-  const nOld = klientet.filter(k => k.source === 'old').length;
-  document.getElementById('k-count').textContent = `${klientet.length - nOld} klientë`
-    + (window._KLIENTET_SOURCE === 'bilanc' ? ' · nga Inco Bilanc' : ' · Bilanc nuk u ngarkua')
-    + (nOld ? ` · ${nOld} të vjetër pa lidhje` : '');
-  const el = document.getElementById('folder-grid');
-  if(!klientet.length) {
-    el.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><div style="font-size:40px;margin-bottom:12px">📂</div><div style="font-weight:600;font-size:15px">Asnjë klient</div><div style="font-size:12px;margin-top:6px">Shtoni klientin e parë</div></div><div class="folder-new" onclick="openKModal()"><div class="fni">➕</div><div class="fnt">Klient i Ri</div></div>`;
-    return;
-  }
-  el.innerHTML = klientet.map(k => {
-    const old = k.source === 'old';
-    // Partner badge (klients marked isPartner) — shown to everyone so the
-    // admin can see who's a partner at a glance, and the partner can
-    // recognise themselves in the list.
-    const partnerBadge = k.isPartner
-      ? `<span style="display:inline-block;background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd;border-radius:5px;padding:1px 7px;font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-left:6px;">Partner</span>`
-      : '';
-    // An old client of this app with no Bilanc client: its orders stay here until it is linked.
-    const oldBadge = old
-      ? `<span title="Klient i vjetër i këtij programi, pa klient në Inco Bilanc" style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 7px;font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-left:6px;">Pa lidhje me Bilanc</span>`
-      : '';
-    // "Krijuar nga" line — admin-only, shown only when the klient was
-    // actually added by a partner.  Admin-created klients render nothing
-    // here (no "Krijuar nga: Admin" noise on every card).
-    const createdByLine = _isPartnerCreated(k.createdBy)
-      ? `<div class="admin-only" style="font-size:10px;color:#6b7280;margin-top:4px;font-family:'DM Mono',monospace;">Krijuar nga: <b>${escHtml(_createdByName(k.createdBy))}</b></div>`
-      : '';
-    const actions = old
-      ? `<button class="btn btn-blue btn-xs admin-only" onclick="openKLinkModal('${escHtml(k.id)}')">🔗 Lidh me Bilanc</button>`
-      : `<button class="btn btn-blue btn-xs" onclick="openKModal('${escHtml(k.id)}')">Edito</button>`;
-    return `<div class="folder"${old ? ' style="border-style:dashed;opacity:.9;"' : ''}>
-      <div class="ftop"><span class="ficon">📁</span>${partnerBadge}${oldBadge}</div>
-      <div class="fbody">
-        <div class="fname">${escHtml(k.emri)}</div>
-        <div class="fmeta"><span>${escHtml(k.telefoni||'—')}</span><span>${escHtml(k.email||'—')}</span></div>
-        ${createdByLine}
-      </div>
-      <div class="ffoot">
-        <span class="fcnt">${cnt[k.id] || 0} porosi</span>
-        <div class="facts" onclick="event.stopPropagation()">
-          ${actions}
-        </div>
-      </div>
-    </div>`;
-  }).join('') + `<div class="folder-new" onclick="openKModal()"><div class="fni">➕</div><div class="fnt">Klient i Ri</div></div>`;
+// Order header: the link button shows only for an old client with no Bilanc client.
+function _klientLinkUi() {
+  const btn = document.getElementById('klient-link-btn');
+  if (!btn) return;
+  const k = klientOf(window._editingKlientId || '');
+  btn.style.display = (k && k.source === 'old' && window._KLIENTET_SOURCE === 'bilanc') ? '' : 'none';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -6354,6 +6111,7 @@ async function openOrder(id, opts) {
   // Track the klient_id of the order being edited. saveOrderToStorage uses
   // this as the authoritative klient_id (so renames don't accidentally re-key).
   window._editingKlientId = order.klient_id || null;
+  _klientLinkUi();
   // Capture structural fingerprint so saveOrderToStorage can detect a real edit
   // and auto-revert 'perfunduar' → 'procesim'. Use the post-migration `blocks`
   // array so legacy orders compare apples-to-apples.
@@ -6472,6 +6230,7 @@ async function startNewOrder() {
   resetOrderForm();
   window._editingKlientId = klientId;
   document.getElementById('klienti').value = klientEmri;
+  _klientLinkUi();
   document.getElementById('nr-fatura').value = '';                // shown blank until save
   document.getElementById('nr-fatura').placeholder = 'pas ruajtjes';
   document.getElementById('order-breadcrumb').textContent = `Porosi e Re — ${klientEmri}`;
@@ -6503,6 +6262,7 @@ function resetOrderForm() {
   if(driftEl) driftEl.remove();
   updateAddButtons(); renderBlocks();
   document.getElementById('klienti').value = '';
+  _klientLinkUi();
   const _noteReset = document.getElementById('klient-note');
   if (_noteReset) _noteReset.value = '';
   _bilancSetProjectField('', '');
@@ -7912,7 +7672,7 @@ function fillPriceFields() {
 // ── KONFIGURIM tabs (Melamine / Betoforme / MDF / Fiber / Tenie) ──
 // Tracks the currently active tab; preserved across re-renders. Materials
 // tabs share a single pane (filtered by type); Tenie has its own pane.
-window._cfgTab = window._cfgTab || 'melamine';
+window._cfgTab = 'workers';
 
 const _CFG_TAB_LABELS = {
   melamine:  'Melamine',
@@ -7925,6 +7685,7 @@ const _CFG_TAB_LABELS = {
 
 function setCfgTab(tab) {
   if (!_CFG_TAB_LABELS[tab]) return;
+  tab = 'workers';   // the only section left: materials are managed in Inco Bilanc → Artikujt
   _cfgTab = tab;
   // Visually mark the active tab
   document.querySelectorAll('.cfg-tab').forEach(t => {
@@ -16397,7 +16158,6 @@ function showMsg(txt) {
 
 // ─── INIT ────────────────────────────────────────────────────────
 document.getElementById('data').value = new Date().toISOString().split('T')[0];
-renderKlientet();
 
 
 // KANBAN — Menaxhimi Porosive
