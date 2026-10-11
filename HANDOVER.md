@@ -616,7 +616,8 @@ The browser preview can't log in on its own (it needs a real user), so features 
 
 | Date | Commit | Change |
 |---|---|---|
-| 2026-10-11 | | Inco Bilanc requires sign-in: one login opens both apps (§21) |
+| 2026-10-11 | | Every Firebase account gets in (no single admin email), in both apps (§21) |
+| 2026-10-11 | `f95bc9c` | Inco Bilanc requires sign-in: one login opens both apps (§21) |
 | 2026-10-11 | `f759111` | No Klientët page or client form; Konfigurim = Punëtorët only (§19, §20) |
 | 2026-10-11 | `124ea75` | Clients from Bilanc only; client cascade delete removed (§20) |
 | 2026-10-09 – 10-11 | | Bilanc link, materials from Bilanc, no prices, Inco Furniture projects (§18, §19) |
@@ -699,11 +700,11 @@ Every saved order is billed in **Inco Bilanc** (the accounting app, Firebase pro
 
 ## 21. Signing in to Inco Bilanc (added 2026-10-11)
 
-Inco Bilanc's database now refuses anything without a signed-in account that has access (its `firestore.rules`; access is given by Bilanc's owner in Bilanc → Konfigurime → Përdoruesit). This app therefore reaches Bilanc only through the bridge, signed in.
+Inco Bilanc's database now refuses anything without a signed-in account (its `firestore.rules`, Pass A like this app's). Every account of Bilanc's Firebase Authentication has access; there is no owner and no access list. This app therefore reaches Bilanc only through the bridge, signed in.
 
 - **One login opens both apps.** `doLogin` calls `_bilancStartLogin(email, pass)` before this app's own sign-in: the bridge (`IncoBilancBridge.signIn`, Bilanc's `src/integrations/serviceAccess.js`) signs in to Bilanc with the same email and password. Accounts must therefore exist in BOTH Firebase projects (incoservice-4e196 and incobilanc) with the same password. The Bilanc session lives as long as the tab (sessionStorage), like this app's.
 - **Every Bilanc access waits for that sign-in** (`_bilancReady()`) and goes through the bridge: materials (`applyBilancCatalog` → `readCollection('items')`), clients (`_loadBilancClientData` → `readCollection('partners')` + `readClientLinks()`), projects (`_bilancProjectsData`), invoices (`bilancSyncOrder`, `bilancRemoveOrder`). The old read-only compat app named `bilanc` and `BILANC_FIREBASE_CONFIG` are gone.
 - **When Bilanc refuses** (`permission-denied`): `_bilancAccessProblem` opens the "Hyr në Inco Bilanc" dialog once per page load (`openBilancLogin` / `doBilancLogin`), unless the bridge is already signed in, in which case a toast says that account has no access in Bilanc. After a successful Bilanc sign-in the page reloads to load Bilanc's data, but never over unsaved order changes (`hasUnsavedChanges`). A refused Bilanc never blocks saving an order; the invoices are created on the next save.
 - **Logout, a refused email and a failed login close the Bilanc session too** (`_bilancSignOutQuiet`). A new login first closes any previous Bilanc session, so the next user on the same tab never inherits it.
-- **Roles here are unchanged:** only `ADMIN_EMAIL` is admin; other emails need a partner row (`klientet` isPartner + `partner_index`), otherwise they are signed out with "Pa akses".
+- **Who gets in here (since 2026-10-11):** every account of this project's Firebase Authentication. An email that belongs to a client flagged isPartner (`klientet` + `partner_index`) is a partner; every other account is an admin (`resolveRole`; the single hardcoded `ADMIN_EMAIL` is gone). Accounts are created only in the Firebase console, so **self sign-up must be switched off** in both projects (Authentication → Settings → User actions → "Enable create (sign-up)"); with it on, anyone could create an account with the public API key and get full access.
 - **Tests (no network, fake bridge behaving like Bilanc's rules):** `svc_auth.test.js` in the session scratchpad, 14 checks. Bilanc's rules: `node tools/rules_test.cjs` in the Bilanc repo (27 cases, also against the deployed ruleset).

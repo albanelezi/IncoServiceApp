@@ -4328,7 +4328,11 @@ async function deleteOrderFromDetail() {
 // email.  Until resolveRole runs, _ROLE.role is null and UI guards default
 // to "admin behavior" so the initial render isn't broken — by the time the
 // splash hides resolveRole has either completed or signed the user out.
-const ADMIN_EMAIL = 'albanisela@gmail.com';
+// Who gets in: EVERY account of this Firebase project (Authentication → Users;
+// accounts are created only in the Firebase console, self sign-up must stay
+// off there). An account whose email belongs to a client flagged isPartner is
+// a partner; every other account is an admin. (Until 2026-10-11 only one
+// hardcoded email was admin.)
 // Per-partner logo override.  When a partner with a key matching their
 // auth email signs in, applyRoleUi swaps the nav + landing + PDF logos
 // to their branded version so the workspace feels personal.  Keys are
@@ -4346,17 +4350,12 @@ window._ROLE = {
 function isAdmin()   { return window._ROLE && window._ROLE.role === 'admin'; }
 function isPartner() { return window._ROLE && window._ROLE.role === 'partner'; }
 
-// Called at boot AFTER klients load.  Returns true on success, false if the
-// user is unauthorized (caller should sign them out).
+// Called at boot AFTER klients load.  Returns true on success, false only for
+// a session without an email (caller signs it out).
 function resolveRole(email) {
   const lower = String(email || '').toLowerCase().trim();
   window._ROLE.email = lower;
-  if (lower === ADMIN_EMAIL.toLowerCase()) {
-    window._ROLE.role = 'admin';
-    window._ROLE.partnerKlientId   = null;
-    window._ROLE.partnerKlientName = null;
-    return true;
-  }
+  if (!lower) return false;
   // Search the klient cache for a record marked isPartner whose email matches.
   const partnerKlient = (_SERVICE_KLIENTET || []).find(k =>
     k && k.isPartner === true &&
@@ -4367,7 +4366,11 @@ function resolveRole(email) {
     window._ROLE.partnerKlientName = klientNameOf(partnerKlient.id, partnerKlient.emri);
     return true;
   }
-  return false;
+  // every other account of the project is an admin
+  window._ROLE.role = 'admin';
+  window._ROLE.partnerKlientId   = null;
+  window._ROLE.partnerKlientName = null;
+  return true;
 }
 
 // "Did THIS klient/order belong to the signed-in user?"  Admin always passes.
