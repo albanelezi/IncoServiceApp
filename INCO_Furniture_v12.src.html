@@ -3754,6 +3754,7 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
           <option value="">— Zgjidh klientin —</option>
         </select>
         <div id="nom-klient-err" style="display:none;margin-top:6px;font-size:11px;color:var(--red);font-weight:600">⚠ Zgjidh klientin nga lista</div>
+        <div id="nom-klient-info" style="display:none;margin-top:8px;padding:8px 10px;border-radius:6px;background:#fef3c7;border:1px solid #fcd34d;color:#92400e;font-size:12px;line-height:1.45;"></div>
         <div style="margin-top:8px;font-size:11px;color:var(--muted)">Klientët shtohen te <b>Inco Bilanc → Klientët</b>.</div>
       </div>
     </div>
@@ -4809,13 +4810,13 @@ async function bootLoadKlientet() {
 
 // Read Bilanc's clients again (a client added there a moment ago shows up here).
 // At most every 20 s; resolves true when the list changed.
-async function _refreshKlientet() {
-  if (Date.now() - _klientetRefreshAt < 20000) return false;
+async function _refreshKlientet(force) {
+  if (!force && Date.now() - _klientetRefreshAt < 20000) return false;
   _klientetRefreshAt = Date.now();
   const sig = () => JSON.stringify(_KLIENTET_CACHE.map(k => [k.id, k.emri, k.active, k.source]));
   const before = sig();
   try { _BILANC_CLIENT_DATA = await _loadBilancClientData(); }
-  catch (e) { console.warn('[INCO] Bilanc clients not refreshed:', e); return false; }
+  catch (e) { console.warn('[INCO] Bilanc clients not refreshed:', e); if (force) _bilancAccessProblem(e); return false; }
   _rebuildKlientet();
   return sig() !== before;
 }
@@ -6595,20 +6596,36 @@ async function openOrder(id, opts) {
 // ═══════════════════════════════════════════════════════════════
 function openNewOrderModal() {
   const sel = document.getElementById('nom-klient');
-  // Bilanc's clients only (old clients not linked to one can't get new orders).
+  const info = document.getElementById('nom-klient-info');
+  const startBtn = document.getElementById('nom-start-btn');
+  // ONLY Bilanc's clients (active ones): never this app's old client list, not
+  // even when Bilanc could not be loaded — then the dialog says so instead.
   // Role filter + alphabetical so the operator scrolls a predictable list.
   // Partners only see their own klients here; the admin sees everyone.
   const fill = () => {
     const keep = sel.value;
-    const sortedKlients = loadKlientet()
-      .filter(k => k.source !== 'old' && k.active !== false)
+    const loaded = window._KLIENTET_SOURCE === 'bilanc';
+    const sortedKlients = loaded ? loadKlientet()
+      .filter(k => k.source === 'bilanc' && k.active !== false)
       .filter(_ownsKlient)
       .slice()
       .sort((a, b) =>
-        (a.emri || '').localeCompare((b.emri || ''), 'sq', { sensitivity: 'base' }));
-    sel.innerHTML = '<option value="">— Zgjidh klientin —</option>' +
+        (a.emri || '').localeCompare((b.emri || ''), 'sq', { sensitivity: 'base' })) : [];
+    sel.innerHTML = '<option value="">' + (loaded ? '— Zgjidh klientin —' : 'Po ngarkohen klientët nga Bilanc…') + '</option>' +
       sortedKlients.map(k => `<option value="${escHtml(k.id)}">${escHtml(k.emri)}</option>`).join('');
     sel.value = keep;
+    sel.disabled = !loaded;
+    if (startBtn) startBtn.disabled = !loaded;
+    if (info) info.style.display = 'none';
+  };
+  const notLoaded = () => {
+    sel.innerHTML = '<option value="">Klientët e Bilanc nuk u ngarkuan</option>';
+    sel.disabled = true;
+    if (startBtn) startBtn.disabled = true;
+    if (info) {
+      info.innerHTML = 'Klientët vijnë vetëm nga Inco Bilanc dhe nuk u ngarkuan. <a href="#" onclick="event.preventDefault();closeNewOrderModal();openBilancLogin();">Hyr në Bilanc</a> ose rifresko faqen.';
+      info.style.display = 'block';
+    }
   };
   sel.innerHTML = '';
   fill();
@@ -6616,8 +6633,13 @@ function openNewOrderModal() {
   document.getElementById('nom-klient-err').style.display = 'none';
   document.getElementById('new-order-modal').classList.add('open');
   setTimeout(() => sel.focus(), 100);
-  // a client added in Bilanc a moment ago shows up without reloading the page
-  _refreshKlientet().then(changed => { if (changed) fill(); });
+  // read Bilanc again: a client added there a moment ago shows up without a
+  // reload, and a list that failed to load at startup gets another try now
+  const missing = window._KLIENTET_SOURCE !== 'bilanc';
+  _refreshKlientet(missing).then(changed => {
+    if (window._KLIENTET_SOURCE !== 'bilanc') notLoaded();
+    else if (changed || missing) fill();
+  });
 }
 function closeNewOrderModal() { document.getElementById('new-order-modal').classList.remove('open'); }
 
@@ -6630,6 +6652,12 @@ async function startNewOrder() {
     return;
   }
   const klientId = sel.value;
+  const chosen = klientOf(klientId);
+  if (!chosen || chosen.source !== 'bilanc') {
+    sel.style.borderColor = 'var(--red)';
+    shellToast('Zgjidh një klient të Inco Bilanc', 'err');
+    return;
+  }
   const klientEmri = klientNameOf(klientId);
   // ID/Fatura allocation is deferred to save time. As of v12, fatura == order id
   // (same number), and we only want to consume a counter slot once the order is

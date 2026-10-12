@@ -616,7 +616,8 @@ The browser preview can't log in on its own (it needs a real user), so features 
 
 | Date | Commit | Change |
 |---|---|---|
-| 2026-10-12 | | Review of the Bilanc invoices before they are written (§22) |
+| 2026-10-12 | | New-order picker: only Bilanc clients, never the old list (§20) |
+| 2026-10-12 | `53d512f` | Review of the Bilanc invoices before they are written (§22) |
 | 2026-10-11 | `7c263e3` | Every Firebase account gets in (no single admin email), in both apps (§21) |
 | 2026-10-11 | `f95bc9c` | Inco Bilanc requires sign-in: one login opens both apps (§21) |
 | 2026-10-11 | `f759111` | No Klientët page or client form; Konfigurim = Punëtorët only (§19, §20) |
@@ -686,6 +687,7 @@ Every saved order is billed in **Inco Bilanc** (the accounting app, Firebase pro
   - Alfons Mata's login is his old row, linked to his Bilanc client by name.
   - With the client form gone, there is no screen to grant or revoke partner access. A new partner login needs a `klientet` row (`isPartner: true`, `email`, id = the Bilanc client id or a linked old id) plus `partner_index/<email>` = `{ klientId }`. Partners can't add clients any more: they order for themselves and for the clients they added before.
 - **Invoice numbers per client:** `allocateFaturaForKlient` reads the counters of all of a client's ids (its Bilanc id plus its linked old ids), continues from the highest number (or from the highest `fatura` among their orders), and moves all of those counters forward together. A client's numbers never restart when its id changes.
+- **New-order picker (2026-10-12):** lists ONLY Bilanc's active clients (`source === 'bilanc'`), never this app's old list, even when Bilanc could not be loaded at startup: then the picker retries at once (`_refreshKlientet(true)`); if Bilanc still can't be read, the start button stays disabled and a note offers "Hyr në Bilanc". `startNewOrder` refuses any non-Bilanc client.
 - **Refresh:** opening the new-order picker reads Bilanc again (at most every 20 s), so a client added in Bilanc shows up without a reload.
 - **Tests (read-only, live data, writes only recorded):** `clients_service.js` in the session scratchpad. 30 checks pass on the build without the client page:
   - all 218 live orders show a name and resolve to exactly one client;
