@@ -616,7 +616,8 @@ The browser preview can't log in on its own (it needs a real user), so features 
 
 | Date | Commit | Change |
 |---|---|---|
-| 2026-10-11 | | Every Firebase account gets in (no single admin email), in both apps (§21) |
+| 2026-10-12 | | Review of the Bilanc invoices before they are written (§22) |
+| 2026-10-11 | `7c263e3` | Every Firebase account gets in (no single admin email), in both apps (§21) |
 | 2026-10-11 | `f95bc9c` | Inco Bilanc requires sign-in: one login opens both apps (§21) |
 | 2026-10-11 | `f759111` | No Klientët page or client form; Konfigurim = Punëtorët only (§19, §20) |
 | 2026-10-11 | `124ea75` | Clients from Bilanc only; client cascade delete removed (§20) |
@@ -708,3 +709,14 @@ Inco Bilanc's database now refuses anything without a signed-in account (its `fi
 - **Logout, a refused email and a failed login close the Bilanc session too** (`_bilancSignOutQuiet`). A new login first closes any previous Bilanc session, so the next user on the same tab never inherits it.
 - **Who gets in here (since 2026-10-11):** every account of this project's Firebase Authentication. An email that belongs to a client flagged isPartner (`klientet` + `partner_index`) is a partner; every other account is an admin (`resolveRole`; the single hardcoded `ADMIN_EMAIL` is gone). Accounts are created only in the Firebase console, so **self sign-up must be switched off** in both projects (Authentication → Settings → User actions → "Enable create (sign-up)"); with it on, anyone could create an account with the public API key and get full access.
 - **Tests (no network, fake bridge behaving like Bilanc's rules):** `svc_auth.test.js` in the session scratchpad, 14 checks. Bilanc's rules: `node tools/rules_test.cjs` in the Bilanc repo (27 cases, also against the deployed ruleset).
+
+## 22. Review of the Bilanc invoices before they are written (added 2026-10-12)
+
+After "Ruaj Porosinë" (admin) the invoices the order would make in Inco Bilanc are shown before anything is written: the "Faturat në Inco Bilanc" dialog (block "Review of the Bilanc invoices" next to `bilancSyncOrder`).
+
+- **When:** `persistOrder(order, { review: true })` from the order form's two saves (new order, edited order) calls `bilancReviewOrder(order)` for admins. It asks the bridge `previewServiceOrder(payload)` (Bilanc's plan, nothing written) and opens the dialog only when an invoice would be created, changed or removed. The toolbar button "🧾 Faturat në Bilanc" (`openBilancReviewForCurrent`, saved orders without unsaved changes) opens it any time. Partners and the other saves (`_adminReassignOrder`, price refresh, restore from Koshi) bill directly, as before.
+- **What it shows:** one card per department (Pllakat / Prerja, bordimi, frezimi / Lyerja), with the warehouse, the state (E re, Përditësohet, Pa ndryshime, Nuk krijohet, Hiqet, Nuk ndryshohet) and the invoice number, then the lines: article, quantity, unit, price, value, plus the invoice total and the grand total. Stock warnings from Bilanc are shown on top.
+- **What can be changed:** the checkbox "Krijo këtë faturë" leaves an invoice out (e.g. the client brought his own boards); quantities and prices are editable (a changed line is highlighted, ↺ goes back to the order's values; quantity 0 drops the line). Invoices that are fiscalized, paid, edited by hand in Bilanc, or no longer needed by the order are shown read-only with the reason; a paid invoice can't be left out.
+- **"Ruaj faturat"** calls `bilancSyncOrder(order, decisions)` with `decisions = { [part]: { exclude, lines: { [lineId]: { qty, price } } } }`. **"Mos krijo fatura tani"** writes nothing (the order itself is already saved); the button opens the dialog later.
+- **Remembered in Bilanc (bridge v6):** an invoice left out goes to `settings.service.dismissed` (an existing one is moved to Bilanc's Koshi) and later saves don't make it until it is ticked again; changed quantities / prices are stored on the invoice (`serviceOverrides`, by line id `s<blockId>-<kind>`) and applied again on every save of the order while the order still has that line.
+- **Tests:** Bilanc bridge suite (71 checks, `bridge.test.js` case 15) and `review_flow.test.mjs` (17 checks: this app's real dialog code driving the real bridge on an in-memory Bilanc), both in the session scratchpad.

@@ -3055,6 +3055,35 @@ body.hide-prices #btn-printo-fatura { display: none !important; }
    read-only (they are added and changed in Bilanc). Workers stay editable. */
 /* Konfigurim has only Punëtorët: materials (and clients) are managed in Inco Bilanc. */
 .cfg-tab:not([data-cfgtab="workers"]), #cfg-mat-pane, #cfg-tenie-pane, #cfg-footer-bar { display: none !important; }
+/* Review of the Bilanc invoices before they are written (bilancReviewOrder) */
+#bl-review .modal.blr-modal { max-width: 1000px; width: 96vw; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; }
+.blr-modal .mhead, .blr-modal .mfoot { flex-shrink: 0; }
+.blr-modal .mbody { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+.blr-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.blr-note { font-size: 12.5px; color: var(--text2, var(--text)); background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin-bottom: 12px; line-height: 1.5; }
+.blr-warnings { font-size: 12px; color: #92400e; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; line-height: 1.5; }
+.blr-card { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; overflow: hidden; background: var(--surface); }
+.blr-card.blr-off .blr-table { opacity: .45; }
+.blr-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 12px; background: var(--surface2); border-bottom: 1px solid var(--border); }
+.blr-wh { font-size: 12px; color: var(--muted); margin-left: 6px; }
+.blr-right { display: flex; align-items: center; gap: 12px; }
+.blr-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
+#bl-review label.blr-check { display: flex; align-items: center; gap: 6px; margin: 0; font-family: inherit; font-size: 12.5px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text); cursor: pointer; user-select: none; }
+#bl-review label.blr-check input { width: 16px; height: 16px; margin: 0; cursor: pointer; accent-color: #0e7a59; }
+.blr-reason { font-size: 12px; color: #6b21a8; padding: 6px 12px; background: #faf5ff; border-bottom: 1px solid var(--border); }
+#bl-review table.blr-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 0; }
+#bl-review .blr-table th { background: transparent; color: var(--muted); text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+#bl-review .blr-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--text); background: transparent; }
+#bl-review .blr-table .num { text-align: right; white-space: nowrap; }
+#bl-review .blr-table tfoot td { font-weight: 700; border-bottom: 0; }
+.blr-desc { font-size: 11px; color: var(--muted); margin-top: 1px; }
+#bl-review input.blr-in { width: 96px; min-width: 0; padding: 5px 7px; border: 1px solid var(--border); border-radius: 6px; text-align: right; font-size: 13px; font-family: inherit; background: #fff; }
+#bl-review input.blr-in:focus { outline: none; border-color: #0e7a59; box-shadow: 0 0 0 2px rgba(14,122,89,.15); }
+#bl-review .blr-changed td { background: #fffbeb; }
+.blr-reset { border: 0; background: transparent; cursor: pointer; font-size: 15px; color: #b45309; padding: 0 4px; }
+.blr-foot { align-items: center; gap: 8px; flex-wrap: wrap; }
+.blr-grand { margin-right: auto; font-size: 14px; }
+@media (max-width: 640px) { #bl-review input.blr-in { width: 70px; } #bl-review .blr-table th:nth-child(3), #bl-review .blr-table td:nth-child(3) { display: none; } }
 .cfg-bilanc-note { display: none; margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface2); font-size: 12.5px; line-height: 1.5; color: var(--text2, var(--text)); }
 .cfg-bilanc-note a { color: var(--gold); font-weight: 700; text-decoration: none; margin-left: 6px; }
 .cfg-bilanc-note .cfg-bilanc-skipped { display: block; margin-top: 4px; color: #b45309; }
@@ -3445,6 +3474,7 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
       <button class="btn btn-sm" id="btn-shkarko-fatura" onclick="shkarkoFaturen()" style="background:#7c3aed;color:#fff">&#129534; Shkarko Faturën</button>
       <button class="btn btn-sm" id="btn-printo-fatura" onclick="printoFaturen()" style="background:#7c3aed;color:#fff">&#128424; Printo Faturën</button>
       <button class="btn btn-sm" id="btn-shkarko-wincut" onclick="shkarkoWincut()" style="background:#2c6fc9;color:#fff">&#128193; Shkarko WINCUT</button>
+      <button class="btn btn-sm admin-only" id="btn-bilanc-faturat" onclick="openBilancReviewForCurrent()" style="background:#a97c2b;color:#fff;display:none" title="Shiko dhe ndrysho faturat e kësaj porosie në Inco Bilanc">&#129534; Faturat në Bilanc</button>
       <button class="btn btn-sm" id="btn-fshi-porosine" onclick="deleteOrderFromDetail()" style="background:#dc2626;color:#fff;display:none">🗑 Fshi Porosinë</button>
       <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="saveOrderToStorage()">💾 Ruaj Porosinë</button>
     </div>
@@ -3688,6 +3718,25 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
     <div class="mfoot">
       <button class="btn btn-ghost" onclick="closeBilancLogin()">Më vonë</button>
       <button class="btn btn-green" id="bl-btn" onclick="doBilancLogin()">Hyr në Bilanc</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- MODAL: FATURAT NË BILANC (review before they are written)       -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="overlay" id="bl-review">
+  <div class="modal blr-modal">
+    <div class="mhead"><div><h2>Faturat në Inco Bilanc</h2><div class="blr-sub" id="blr-sub"></div></div><button class="mx" onclick="blrClose(false)">✕</button></div>
+    <div class="mbody">
+      <div class="blr-note">Porosia u ruajt. Kontrollo faturat që do të krijohen në Bilanc: hiq shenjën te një faturë që nuk duhet krijuar (p.sh. klienti solli pllakat e veta) ose ndrysho sasinë dhe çmimin. Zgjedhjet mbahen mend edhe kur porosia ruhet sërish.</div>
+      <div class="blr-warnings" id="blr-warnings" style="display:none"></div>
+      <div id="blr-parts"></div>
+    </div>
+    <div class="mfoot blr-foot">
+      <div class="blr-grand">Totali që faturohet: <b id="blr-total">—</b></div>
+      <button class="btn btn-ghost" onclick="blrClose(false)">Mos krijo fatura tani</button>
+      <button class="btn btn-green" id="blr-save" onclick="blrConfirm()">💾 &nbsp;Ruaj faturat</button>
     </div>
   </div>
 </div>
@@ -4282,6 +4331,8 @@ function applyOrderLockUi(orderId) {
 // orders don't show it. The locked-order CSS rule will further hide it
 // when the order is in 'derguar'.
 function applyDetailToolbarVisibility() {
+  const bf = document.getElementById('btn-bilanc-faturat');
+  if (bf) bf.style.display = window._editingOrderId ? '' : 'none';
   const btn = document.getElementById('btn-fshi-porosine');
   if(!btn) return;
   btn.style.display = window._editingOrderId ? '' : 'none';
@@ -5380,7 +5431,7 @@ async function applyDriftUpdateToCurrentOrder() {
   }
 }
 
-async function persistOrder(order) {
+async function persistOrder(order, opts) {
   const idStr = String(order.id);
   try {
     const ref = db.collection('porosite').doc(idStr);
@@ -5416,8 +5467,10 @@ async function persistOrder(order) {
     const idx = _ORDERS_CACHE.findIndex(o => o.id === order.id);
     if(idx >= 0) _ORDERS_CACHE[idx] = _summaryOfOrder(order);
     else _ORDERS_CACHE.push(_summaryOfOrder(order));
-    // Bill the order in Inco Bilanc (after the save, never blocking it).
-    bilancSyncOrder(order);
+    // Bill the order in Inco Bilanc (after the save, never blocking it). The order
+    // form's "Ruaj Porosinë" first shows the invoices for review (admin only).
+    if (opts && opts.review && isAdmin()) bilancReviewOrder(order);
+    else bilancSyncOrder(order);
     return true;
   } catch(e) {
     console.error('[INCO] order save failed:', e);
@@ -5698,12 +5751,230 @@ async function doBilancLogin() {
   }
 }
 
-async function bilancSyncOrder(order) {
+// ── Review of the Bilanc invoices before they are written ─────────
+// After "Ruaj Porosinë" (admin), the invoices the order would make in Inco
+// Bilanc are shown first (IncoBilancBridge.previewServiceOrder: the same plan,
+// nothing written): one card per department with its lines, quantities,
+// prices and values. The user can leave an invoice out (e.g. the client
+// brought his own boards) or change quantities / prices, then "Ruaj faturat"
+// writes them with those choices (payload.decisions). Bilanc remembers them:
+// an invoice left out stays out on later saves until it is ticked again, and
+// changed quantities / prices are kept on the invoice's lines. The dialog
+// opens on save only when something would be created, changed or removed;
+// the toolbar button "Faturat në Bilanc" opens it any time. Partners and the
+// background saves (reassign, price refresh, restore from the bin) keep
+// billing directly, with the remembered choices.
+window._blReview = null;   // { order, pv, inc: { [part]: bool }, rows: { [part]: [{ id, qty, price, planned }] } }
+
+const _BLR_STATE = {
+  new:      ['E re', '#065f46', '#d1fae5'],
+  update:   ['Përditësohet', '#1e40af', '#dbeafe'],
+  same:     ['Pa ndryshime', '#374151', '#f3f4f6'],
+  excluded: ['Nuk krijohet', '#92400e', '#fef3c7'],
+  remove:   ['Hiqet', '#991b1b', '#fee2e2'],
+  locked:   ['Nuk ndryshohet', '#6b21a8', '#f3e8ff'],
+};
+const _blrNum = v => { const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
+const _blrR2 = n => Math.round((Number(n) || 0) * 100) / 100;
+const _blrR3 = n => Math.round((Number(n) || 0) * 1000) / 1000;
+const _blrMoney = n => fmtALL(_blrR2(n)) + ' Lek';
+const _blrQty = n => String(_blrR3(n)).replace('.', ',');
+
+// Ask Bilanc what this order would bill, then show it (or bill directly when there is nothing to decide).
+async function bilancReviewOrder(order, opts) {
+  opts = opts || {};
+  if (!order || order.id == null) return null;
+  let pv;
+  try {
+    const bridge = await _bilancReady();
+    if (typeof bridge.previewServiceOrder !== 'function') return bilancSyncOrder(order);   // older bridge: no review
+    pv = await bridge.previewServiceOrder(_bilancOrderPayload(order));
+  } catch (e) {
+    console.error('[INCO] Bilanc preview failed:', e);
+    if (await _bilancAccessProblem(e)) return null;
+    _bilancToast('Bilanc: faturat nuk u lexuan (' + (e.message || 'rrjeti') + '). Hapi nga "Faturat në Bilanc" ose ruaj porosinë sërish.', 'err', 9000);
+    return null;
+  }
+  const parts = (pv && pv.parts) || [];
+  if (!parts.length) {
+    // before the link, nothing to bill, or skipped (e.g. an Inco Furniture order without project)
+    if (pv && pv.warnings && pv.warnings.length) _bilancToastResult({ summary: '', warnings: pv.warnings });
+    else if (opts.always) shellToast('Kjo porosi nuk ka fatura në Bilanc.', 'ok');
+    return null;
+  }
+  const changes = parts.some(p => p.state === 'new' || p.state === 'update' || p.state === 'remove');
+  if (!changes && !opts.always) return null;   // nothing would change: no dialog
+  _blrOpen(order, pv);
+  return pv;
+}
+
+function _blrOpen(order, pv) {
+  const inc = {}, rows = {};
+  for (const p of pv.parts) {
+    inc[p.key] = p.state !== 'excluded';
+    const src = p.state === 'excluded' ? p.plannedLines : p.lines;
+    rows[p.key] = src.map(l => ({ ...l, qty: l.qty, price: l.price }));
+  }
+  window._blReview = { order, pv, inc, rows };
+  const m = document.getElementById('bl-review');
+  document.getElementById('blr-sub').textContent = [
+    'Porosia #' + (order.fatura || order.id),
+    pv.partnerName || '',
+    pv.docType === 'PROJECT_DOC' ? ('Faturë projekti' + (pv.projectName ? ' · ' + pv.projectName : '')) : 'Faturë shitje',
+  ].filter(Boolean).join(' · ');
+  _blrRender();
+  m.classList.add('open');
+}
+
+function _blrRender() {
+  const R = window._blReview;
+  if (!R) return;
+  const warn = document.getElementById('blr-warnings');
+  const ws = R.pv.warnings || [];
+  warn.style.display = ws.length ? '' : 'none';
+  warn.innerHTML = ws.map(w => '<div>⚠ ' + escHtml(w) + '</div>').join('');
+  document.getElementById('blr-parts').innerHTML = R.pv.parts.map(p => {
+    const included = !!R.inc[p.key];
+    const editable = p.editable && included;
+    // what will happen after saving: unticked = not made (or, if it exists, removed to Bilanc's bin)
+    let shown = p.state, stateLabel = '';
+    if (!included) { shown = p.number ? 'remove' : 'excluded'; stateLabel = p.number ? 'Hiqet (shkon te Koshi)' : 'Nuk krijohet'; }
+    else if (p.state === 'excluded') { shown = 'new'; stateLabel = 'Krijohet sërish'; }
+    const [label, fg, bg] = _BLR_STATE[shown] || _BLR_STATE.same;
+    stateLabel = stateLabel || label;
+    const badge = '<span class="blr-badge" style="color:' + fg + ';background:' + bg + '">' + escHtml(stateLabel) + (p.number ? ' · Nr. ' + escHtml(p.number) : '') + '</span>';
+    const box = p.canExclude
+      ? '<label class="blr-check"><input type="checkbox" ' + (included ? 'checked' : '') + ' onchange="_blrToggle(\'' + p.key + '\', this.checked)"> Krijo këtë faturë</label>'
+      : '';
+    const rows = R.rows[p.key].map((r, i) => {
+      const changed = r.planned && (_blrR3(r.qty) !== _blrR3(r.planned.qty) || _blrR2(r.price) !== _blrR2(r.planned.price));
+      const qtyCell = editable
+        ? '<input class="blr-in" type="text" inputmode="decimal" value="' + _blrQty(r.qty) + '" oninput="_blrEdit(\'' + p.key + '\',' + i + ',\'qty\',this.value)">'
+        : _blrQty(r.qty);
+      const priceCell = editable
+        ? '<input class="blr-in" type="text" inputmode="decimal" value="' + String(_blrR2(r.price)).replace('.', ',') + '" oninput="_blrEdit(\'' + p.key + '\',' + i + ',\'price\',this.value)">'
+        : fmtALL(_blrR2(r.price));
+      const reset = editable && changed
+        ? '<button type="button" class="blr-reset" title="Si në porosi: ' + escHtml(_blrQty(r.planned.qty)) + ' × ' + escHtml(fmtALL(r.planned.price)) + '" onclick="_blrReset(\'' + p.key + '\',' + i + ')">↺</button>'
+        : '';
+      return '<tr class="' + (changed ? 'blr-changed' : '') + '">'
+        + '<td>' + escHtml(r.item) + (r.description ? '<div class="blr-desc">' + escHtml(r.description) + '</div>' : '') + '</td>'
+        + '<td class="num">' + qtyCell + '</td><td>' + escHtml(r.unit || '') + '</td>'
+        + '<td class="num">' + priceCell + '</td>'
+        + '<td class="num" id="blr-v-' + p.key + '-' + i + '">' + fmtALL(_blrR2(_blrNumOr0(r.qty) * _blrNumOr0(r.price))) + '</td>'
+        + '<td>' + reset + '</td></tr>';
+    }).join('');
+    return '<div class="blr-card' + (included ? '' : ' blr-off') + '">'
+      + '<div class="blr-head"><div><b>' + escHtml(p.title) + '</b> <span class="blr-wh">' + escHtml(p.warehouse) + '</span></div>'
+      + '<div class="blr-right">' + badge + box + '</div></div>'
+      + (p.reason ? '<div class="blr-reason">' + escHtml(p.reason) + '</div>' : '')
+      + '<table class="blr-table"><thead><tr><th>Artikulli</th><th class="num">Sasia</th><th>Njësia</th><th class="num">Çmimi</th><th class="num">Vlera</th><th></th></tr></thead>'
+      + '<tbody>' + rows + '</tbody>'
+      + '<tfoot><tr><td colspan="4">Totali i faturës</td><td class="num" id="blr-t-' + p.key + '">' + _blrMoney(_blrPartTotal(p.key)) + '</td><td></td></tr></tfoot></table>'
+      + '</div>';
+  }).join('');
+  _blrTotals();
+}
+
+function _blrNumOr0(v) { const n = _blrNum(v); return Number.isFinite(n) ? n : 0; }
+function _blrPartTotal(key) {
+  const R = window._blReview;
+  return (R.rows[key] || []).reduce((a, r) => a + _blrR2(_blrNumOr0(r.qty) * _blrNumOr0(r.price)), 0);
+}
+// the grand total counts the invoices that will exist after saving
+function _blrTotals() {
+  const R = window._blReview;
+  let t = 0;
+  for (const p of R.pv.parts) {
+    if (!R.inc[p.key] || p.state === 'remove') continue;
+    t += _blrPartTotal(p.key);
+  }
+  document.getElementById('blr-total').textContent = _blrMoney(t);
+}
+
+function _blrToggle(key, on) {
+  const R = window._blReview;
+  if (!R) return;
+  R.inc[key] = !!on;
+  _blrRender();
+}
+
+function _blrEdit(key, i, field, value) {
+  const R = window._blReview;
+  if (!R) return;
+  R.rows[key][i][field] = value;
+  const r = R.rows[key][i];
+  const v = document.getElementById('blr-v-' + key + '-' + i);
+  if (v) v.textContent = fmtALL(_blrR2(_blrNumOr0(r.qty) * _blrNumOr0(r.price)));
+  const t = document.getElementById('blr-t-' + key);
+  if (t) t.textContent = _blrMoney(_blrPartTotal(key));
+  _blrTotals();
+}
+
+function _blrReset(key, i) {
+  const R = window._blReview;
+  const r = R.rows[key][i];
+  if (!r.planned) return;
+  r.qty = r.planned.qty; r.price = r.planned.price;
+  _blrRender();
+}
+
+// The choices for the bridge: { [part]: { exclude, lines: { [lineId]: { qty, price } } } }.
+function _blrDecisions() {
+  const R = window._blReview;
+  const decisions = {};
+  for (const p of R.pv.parts) {
+    if (!p.editable) continue;                   // locked / removed: nothing to decide
+    const lines = {};
+    for (const r of R.rows[p.key]) {
+      const qty = _blrNum(r.qty), price = _blrNum(r.price);
+      if (!Number.isFinite(qty) || !Number.isFinite(price) || qty < 0 || price < 0) throw new Error('Sasi ose çmim i pavlefshëm te ' + p.title + ': ' + r.item);
+      if (r.planned && (_blrR3(qty) !== _blrR3(r.planned.qty) || _blrR2(price) !== _blrR2(r.planned.price))) lines[r.id] = { qty: _blrR3(qty), price: _blrR2(price) };
+    }
+    decisions[p.key] = { exclude: p.canExclude ? !R.inc[p.key] : false, lines };
+  }
+  return decisions;
+}
+
+async function blrConfirm() {
+  const R = window._blReview;
+  if (!R) return;
+  let decisions;
+  try { decisions = _blrDecisions(); }
+  catch (e) { shellToast(e.message, 'err'); return; }
+  const btn = document.getElementById('blr-save');
+  btn.disabled = true; btn.textContent = 'Po ruhen…';
+  try {
+    await bilancSyncOrder(R.order, decisions);
+    blrClose(true);
+  } finally {
+    btn.disabled = false; btn.textContent = '💾  Ruaj faturat';
+  }
+}
+
+function blrClose(saved) {
+  document.getElementById('bl-review').classList.remove('open');
+  if (!saved && window._blReview) _bilancToast('Faturat në Bilanc nuk u ndryshuan. Hapi kur të duash nga butoni "Faturat në Bilanc".', '', 7000);
+  window._blReview = null;
+}
+
+// Toolbar button: review the invoices of the open (saved) order at any time.
+async function openBilancReviewForCurrent() {
+  const id = window._editingOrderId;
+  if (!id) { shellToast('Ruaj porosinë më parë', 'err'); return; }
+  if (typeof hasUnsavedChanges === 'function' && hasUnsavedChanges()) { shellToast('Porosia ka ndryshime të paruajtura: ruaje më parë', 'err'); return; }
+  const order = await loadFullOrder(id);
+  if (!order) { shellToast('Porosia nuk u gjet', 'err'); return; }
+  shellToast('Po lexohen faturat nga Bilanc…', 'ok');
+  await bilancReviewOrder(order, { always: true });
+}
+
+async function bilancSyncOrder(order, decisions) {
   if (!order || order.id == null) return null;
   const quiet = isPartner();   // partners don't see the accounting side
   try {
     const bridge = await _bilancReady();
-    const r = await bridge.syncServiceOrder(_bilancOrderPayload(order));
+    const r = await bridge.syncServiceOrder(decisions ? { ..._bilancOrderPayload(order), decisions } : _bilancOrderPayload(order));
     if (!quiet && r) _bilancToastResult(r);   // silent when nothing changed
     return r;
   } catch (e) {
@@ -6623,7 +6894,7 @@ async function _saveOrderToStorageInner() {
         shellToast('Porosia u kthye në "Në Procesim" për shkak të ndryshimeve','ok');
       }
     }
-    const ok = await persistOrder(fullOrder);
+    const ok = await persistOrder(fullOrder, { review: true });
     if(ok) {
       // Refresh the snapshot so subsequent saves compare against the new baseline.
       window._editingOrderFingerprint = structuralFingerprint(fullOrder);
@@ -6658,7 +6929,7 @@ async function _saveOrderToStorageInner() {
     // literal string 'admin' for stability; partners use their klient id.
     orderData.createdBy = isPartner() ? window._ROLE.partnerKlientId : 'admin';
     const fullOrder = { id, ...orderData };
-    const ok = await persistOrder(fullOrder);
+    const ok = await persistOrder(fullOrder, { review: true });
     if(ok) {
       window._editingOrderId = id;
       window._editingKlientId = klientId;
