@@ -95,7 +95,7 @@ const ok = (n, c, x) => { if (c) { pass++; console.log('  OK  ' + n); } else { f
   const halves = reviewRows.filter(p => p.dopjimHalf);
   ok('each doubled label became halves 1/2 and 2/2: 18 mm, in the 18 mm material, part + " dopjim"',
      halves.length === 2 * p36.length && halves.filter(p => p.dopjimHalf === 1).length === p36.length &&
-     halves.every(p => p.thickness === 18 && /18 mm/i.test(p.material) && p.dopjimThickness === 36 && / dopjim$/.test(p.part) && p.dopjim));
+     halves.every(p => p.thickness === 18 && /18 mm/i.test(p.material) && p.dopjimThickness === 36 && /^dopjim /.test(p.part) && p.dopjim));
   ok('the two halves of a label carry the same codes, case and job', p36.every(s => {
     const h = halves.filter(p => p._pos === s._pos);   // _pos = page/cell of the label, unique
     return h.length === 2 && h[0].codeFront === s.codeFront && h[1].codeBack === s.codeBack && h[0].job === h[1].job;
@@ -119,7 +119,7 @@ const ok = (n, c, x) => { if (c) { pass++; console.log('  OK  ' + n); } else { f
      twins[0].l === twins[1].l && twins[0].g === twins[1].g && twins[0].s === '1' && twins[1].s === '1' &&
      twins[0]._importCode === twins[1]._importCode && twins[0]._importCodeBack === twins[1]._importCodeBack &&
      twins[0]._importCode === (sample.codeFront || '') && twins[0]._importJob === twins[1]._importJob);
-  ok('their description ends with " dopjim"', twins.every(r => r._importPart === ((sample.part || '').trim() + ' dopjim').trim() && r.koment === r._importPart));
+  ok('their description STARTS with "dopjim "', twins.every(r => r._importPart === ('dopjim ' + (sample.part || '').trim()).trim() && r.koment === r._importPart));
   ok('a normal label row has no dopjim', rows.filter(r => !r._importDopjim).every(r => !/dopjim/.test(r._importPart)));
   ok('toast reports the dopjim rows', /dopjim/.test(toasts[toasts.length - 1] || ''));
 
@@ -137,7 +137,7 @@ const ok = (n, c, x) => { if (c) { pass++; console.log('  OK  ' + n); } else { f
   console.log('   label 1:', dati[0]); console.log('   label 2:', dati[1]);
   ok('two labels emitted', dati.length === 2);
   ok('both labels identical', dati.length === 2 && dati[0].replace(/^\d+=/, '') === dati[1].replace(/^\d+=/, ''));
-  ok('label description carries "dopjim" and the barcodes', dati.every(l => l.split(',')[7].endsWith(' dopjim') && l.split(',')[11] === (sample.codeFront || '') && l.split(',')[5] === String(sample.caseNumber)));
+  ok('label description carries "dopjim" and the barcodes', dati.every(l => l.split(',')[7].startsWith('dopjim ') && l.split(',')[11] === (sample.codeFront || '') && l.split(',')[5] === String(sample.caseNumber)));
 
   console.log(`\n${fail ? 'FAILURES: ' + fail : 'ALL PASS'} (${pass} ok)`);
   process.exit(fail ? 1 : 0);

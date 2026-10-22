@@ -20581,10 +20581,11 @@ function _pdfImportGroupKey(p) {
   if (/\d+(?:\.\d+)?\s*mm/i.test(mat)) return mat.replace(/\d+(?:\.\d+)?\s*mm/i, p.baseThickness + ' mm');
   return mat + ' ' + p.baseThickness + ' mm';
 }
-// Description of a dopjim piece: the label's part text plus the word dopjim.
+// Description of a dopjim piece: the word dopjim FIRST, then the label's
+// part text ("dopjim Bottom/Baza Kuti Lart").
 function _pdfImportDopjimPart(part) {
-  const s = (part || '').trim();
-  return /\bdopjim$/i.test(s) ? s : (s + ' dopjim').trim();
+  const s = (part || '').trim().replace(/\s+dopjim$/i, '');
+  return /^dopjim\b/i.test(s) ? s : ('dopjim ' + s).trim();
 }
 // Splits every doubled label into its two halves: two review rows of the
 // base thickness with the same label data (codes, case, job) and the
