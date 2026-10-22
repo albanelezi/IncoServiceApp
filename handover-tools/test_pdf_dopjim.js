@@ -59,7 +59,11 @@ const ok = (n, c, x) => { if (c) { pass++; console.log('  OK  ' + n); } else { f
   const pdfjs = require(path.join(process.env.PDFJS_DIR || __dirname, 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.js'));
   const doc = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(PDF)), useSystemFonts: true }).promise;
   const pieces = [];
-  for (let p = 1; p <= doc.numPages; p++) pieces.push(...await F._pdfImportExtractPage(await doc.getPage(p)));
+  for (let p = 1; p <= doc.numPages; p++) {
+    const pagePieces = await F._pdfImportExtractPage(await doc.getPage(p));
+    pagePieces.forEach((pc, idx) => { pc._page = p; pc._pos = `p${p}_${idx}`; });   // as _pdfImportOnFile does
+    pieces.push(...pagePieces);
+  }
   console.log(`A. parsed ${pieces.length} labels from ${path.basename(PDF)} (${doc.numPages} pages)`);
   const thk = {}; pieces.forEach(p => { thk[p.thickness] = (thk[p.thickness] || 0) + 1; });
   console.log('   thickness counts:', JSON.stringify(thk), '| materials:', [...new Set(pieces.map(p => p.material))].join(' / '));
@@ -86,8 +90,21 @@ const ok = (n, c, x) => { if (c) { pass++; console.log('  OK  ' + n); } else { f
   // C. review render + confirm on the real pieces
   F._pdfImport.pieces = pieces;
   F._pdfImportRenderReview();
+  const reviewRows = F._pdfImport.pieces;
+  ok(`review shows TWO rows per doubled label (${reviewRows.length} = ${pieces.length} + ${p36.length})`, reviewRows.length === pieces.length + p36.length);
+  const halves = reviewRows.filter(p => p.dopjimHalf);
+  ok('each doubled label became halves 1/2 and 2/2: 18 mm, in the 18 mm material, part + " dopjim"',
+     halves.length === 2 * p36.length && halves.filter(p => p.dopjimHalf === 1).length === p36.length &&
+     halves.every(p => p.thickness === 18 && /18 mm/i.test(p.material) && p.dopjimThickness === 36 && / dopjim$/.test(p.part) && p.dopjim));
+  ok('the two halves of a label carry the same codes, case and job', p36.every(s => {
+    const h = halves.filter(p => p._pos === s._pos);   // _pos = page/cell of the label, unique
+    return h.length === 2 && h[0].codeFront === s.codeFront && h[1].codeBack === s.codeBack && h[0].job === h[1].job;
+  }));
   ok('review summary mentions dopjim', /dopjim/.test(el('pdf-import-summary').textContent));
-  ok('review table flags the doubled rows', (el('pdf-import-table').innerHTML.match(/dopjim 2×18/g) || []).length === p36.length);
+  ok('review table: one badge per half', (el('pdf-import-table').innerHTML.match(/dopjim [12]\/2 · 36 mm/g) || []).length === halves.length);
+  ok('review table shows no ×2 marker', !/×2</.test(el('pdf-import-table').innerHTML));
+  F._pdfImportRenderReview();
+  ok('re-rendering the review does not split again', F._pdfImport.pieces.length === reviewRows.length);
   for (const k of F._pdfImport.groupKeys) F._pdfImport.mapping[k] = { materialId: 'bm_mel_rimeso', formatId: 'bf_3660x1830x18' };
   F._pdfImportConfirm();
   const blocks = F.getBlocks();

@@ -20562,6 +20562,8 @@ function _pdfImportMarkDopjim(pieces) {
     if (p.thickness != null && p.thickness !== '') byName.get(n).add(Number(p.thickness));
   }
   for (const p of pieces) {
+    // A half produced by _pdfImportSplitDopjim stays a dopjim piece.
+    if (p.dopjimHalf) { p.dopjim = true; continue; }
     const t = Number(p.thickness);
     const half = t / 2;
     const seen = byName.get(_pdfImportBaseName(p.material)) || new Set();
@@ -20575,25 +20577,51 @@ function _pdfImportMarkDopjim(pieces) {
 // base-thickness group of its material ("… 36 mm" → "… 18 mm").
 function _pdfImportGroupKey(p) {
   const mat = p.material || '?';
-  if (!p.dopjim) return mat;
+  if (!p.dopjim || p.dopjimHalf) return mat;   // a split half already carries the base material
   if (/\d+(?:\.\d+)?\s*mm/i.test(mat)) return mat.replace(/\d+(?:\.\d+)?\s*mm/i, p.baseThickness + ' mm');
   return mat + ' ' + p.baseThickness + ' mm';
+}
+// Description of a dopjim piece: the label's part text plus the word dopjim.
+function _pdfImportDopjimPart(part) {
+  const s = (part || '').trim();
+  return /\bdopjim$/i.test(s) ? s : (s + ' dopjim').trim();
+}
+// Splits every doubled label into its two halves: two review rows of the
+// base thickness with the same label data (codes, case, job) and the
+// description + " dopjim". Halves are marked dopjimHalf 1 / 2 and are left
+// alone on later calls, so this is safe to run on every render.
+function _pdfImportSplitDopjim(pieces) {
+  _pdfImportMarkDopjim(pieces);
+  const out = [];
+  for (const p of pieces) {
+    if (!p.dopjim || p.dopjimHalf) { out.push(p); continue; }
+    const base = Object.assign({}, p, {
+      material: _pdfImportGroupKey(p),        // "… 36 mm" → "… 18 mm"
+      thickness: p.baseThickness,
+      dopjimThickness: p.thickness,
+      part: _pdfImportDopjimPart(p.part),
+    });
+    out.push(Object.assign({}, base, { dopjimHalf: 1 }), Object.assign({}, base, { dopjimHalf: 2 }));
+  }
+  return out;
 }
 
 function _pdfImportRenderReview() {
   document.getElementById('pdf-import-step1').style.display = 'none';
   document.getElementById('pdf-import-step2').style.display = 'block';
+  // Doubled labels are shown as two rows each (one per piece to cut).
+  _pdfImport.pieces = _pdfImportSplitDopjim(_pdfImport.pieces);
   const pieces = _pdfImport.pieces;
-  _pdfImportMarkDopjim(pieces);
-  const nDop = pieces.filter(p => p.dopjim).length;
+  const nDopLabels = pieces.filter(p => p.dopjimHalf === 1).length;
+  const nLabels = pieces.length - nDopLabels;
   const filteredNote = (_pdfImport.autoFilteredCount > 0)
     ? ` (${_pdfImport.autoFilteredCount} u filtruan automatikisht: Glass / Aluminium / pa material)`
     : '';
-  const dopNote = nDop
-    ? ` ${nDop} etiketa janë dopjim (trashësi e dyfishtë): secila bëhet 2 copë nga materiali bazë, me të njëjtën etiketë.`
+  const dopNote = nDopLabels
+    ? ` ${nDopLabels} etiketa janë dopjim (trashësi e dyfishtë): secila u nda në 2 rreshta nga materiali bazë, me të njëjtën etiketë.`
     : '';
   document.getElementById('pdf-import-summary').textContent =
-    `${pieces.length} etiketa u lexuan${filteredNote}.${dopNote} Konfirmo lidhjet me materialet/formatet e aplikacionit dhe shto në porosi.`;
+    `${nLabels} etiketa u lexuan${filteredNote}.${dopNote} Konfirmo lidhjet me materialet/formatet e aplikacionit dhe shto në porosi.`;
 
   const groupKeys = [...new Set(pieces.map(_pdfImportGroupKey))];
   _pdfImport.groupKeys = groupKeys;
@@ -20661,7 +20689,7 @@ function _pdfImportRenderReview() {
           : '');
     const count = groupPieces.length;
     const dopCount = groupPieces.filter(p => p.dopjim).length;
-    const countTxt = dopCount ? `${count} etiketa, ${dopCount} dopjim → ${count + dopCount} copë` : `${count} copë`;
+    const countTxt = dopCount ? `${count} copë, ${dopCount} dopjim` : `${count} copë`;
     mhtml += `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;font-size:11px;">
       <div style="flex:0 0 260px;color:#1a2237;font-weight:600;">${escHtml(k)} <span style="color:#5a667e;font-weight:400;">(${countTxt})</span></div>
       <div style="color:#5a667e;flex:0 0 24px;text-align:center;">→</div>
@@ -20689,7 +20717,7 @@ function _pdfImportRenderReview() {
     const num = (v, key) =>
       `<input type="number" step="1" value="${v ?? ''}" oninput="_pdfImport.pieces[${i}].${key}=Math.floor(parseFloat(this.value))||null" style="width:68px;padding:3px 4px;border:1px solid #e0e3ea;border-radius:3px;font-size:10.5px;text-align:right;font-family:inherit;background:#fff;">`;
     const dopBadge = p.dopjim
-      ? `<div style="margin-top:2px;font-size:9.5px;font-weight:700;color:#92400e;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;white-space:nowrap;display:inline-block;" title="Trashësi e dyfishtë: 2 copë nga ${p.baseThickness} mm, etiketa me fjalën dopjim">dopjim 2×${p.baseThickness}</div>`
+      ? `<div style="margin-top:2px;font-size:9.5px;font-weight:700;color:#92400e;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;white-space:nowrap;display:inline-block;" title="Gjysma ${p.dopjimHalf || 1} e një etikete ${p.dopjimThickness || (p.thickness * 2)} mm (dopjim): pritet nga materiali ${p.thickness} mm, etiketa me fjalën dopjim">dopjim ${p.dopjimHalf || 1}/2 · ${p.dopjimThickness || (p.thickness * 2)} mm</div>`
       : '';
     thtml += `<tr${p.dopjim ? ' style="background:#fffbeb;"' : ''}>
       <td style="padding:4px 8px;border-bottom:1px solid #f3f4f7;color:#888;font-size:10px;">${i + 1}</td>
@@ -20698,7 +20726,7 @@ function _pdfImportRenderReview() {
       <td style="padding:4px 6px;border-bottom:1px solid #f3f4f7;text-align:right;">${num(p.length, 'length')}</td>
       <td style="padding:4px 6px;border-bottom:1px solid #f3f4f7;text-align:right;">${num(p.width, 'width')}</td>
       <td style="padding:4px 6px;border-bottom:1px solid #f3f4f7;text-align:right;">${num(p.thickness, 'thickness')}${dopBadge}</td>
-      <td style="padding:4px 6px;border-bottom:1px solid #f3f4f7;text-align:right;white-space:nowrap;">${num(p.qty, 'qty')}${p.dopjim ? ' <span style="color:#92400e;font-weight:700;">×2</span>' : ''}</td>
+      <td style="padding:4px 6px;border-bottom:1px solid #f3f4f7;text-align:right;">${num(p.qty, 'qty')}</td>
       <td style="padding:4px 8px;border-bottom:1px solid #f3f4f7;font-size:10px;color:#444;">${escHtml((p.codes || []).join(', '))}</td>
     </tr>`;
   });
@@ -20784,7 +20812,9 @@ function _pdfImportConfirm() {
     }
   }
   // Thickness may have been edited in the table: decide "dopjim" on the
-  // current values, and refuse a piece whose group has no mapping.
+  // current values (a label edited to a doubled thickness after the review
+  // was split still yields two rows below), and refuse a piece whose group
+  // has no mapping.
   _pdfImportMarkDopjim(_pdfImport.pieces);
   const byTarget = new Map();
   for (const p of _pdfImport.pieces) {
@@ -20827,10 +20857,12 @@ function _pdfImportConfirm() {
     const _firstJob = (group.pieces.find(p => p && p.job) || {}).job;
     if (_firstJob && !block._importJob) block._importJob = _firstJob + '';
     for (const p of group.pieces) {
-     // A doubled label (36 mm = 2×18) becomes TWO identical rows of the base
-     // board: both halves are cut, each with the same label plus "dopjim".
-     const copies = p.dopjim ? 2 : 1;
-     const partText = p.dopjim ? ((p.part || '').trim() + ' dopjim').trim() : (p.part || '');
+     // A doubled label (36 mm = 2×18) is cut as TWO identical pieces of the
+     // base board, each with the same label plus "dopjim". The review already
+     // split it into two half-pieces; an unsplit one (thickness edited in the
+     // table) is doubled here.
+     const copies = (p.dopjim && !p.dopjimHalf) ? 2 : 1;
+     const partText = p.dopjim ? _pdfImportDopjimPart(p.part) : (p.part || '');
      for (let copy = 0; copy < copies; copy++) {
       const r = makeRow(block);
       r.l = String(p.length || '');
