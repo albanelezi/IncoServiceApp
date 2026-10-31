@@ -33,7 +33,8 @@ const v2 = require('./lib/v2packer');
 const algo = require('./lib/algorithm');
 
 const { consolidate, generateCandidates, rowsX, rowsY, genFileContent,
-        packXGreedy, packYGreedy, fitYStripOffcuts, buildYCandidate } = v2;
+        packXGreedy, packYGreedy, fitYStripOffcuts, buildYCandidate,
+        orientations, MIN_INNER_TRIM, assertWincutRowsValid } = v2;
 const { setCoverBB, dominanceFilter } = algo;
 
 // ─────────────────────────────────────────────────────────────────────
@@ -157,10 +158,11 @@ function augmentCandidate(cand, availableRem, panelL, panelW, kerf, trimEdge, tr
 // Back-fill pass.
 // After greedy produces N panels, try to fully absorb the LAST panel's
 // pieces into the leftover extents of earlier panels. If successful,
-// drop the last panel and repeat. Conservative: we only drop a panel
-// when ALL its pieces fit elsewhere (no partial moves), so the earlier
-// panels are only ever extended via append-only `augmentCandidate`,
-// never re-rendered.
+// drop the last panel and repeat. The last panel is dropped only when ALL
+// its pieces fit elsewhere; partial moves are kept (the last panel is then
+// trimmed to what is still on it). Earlier panels are only ever extended:
+// pass A stacks into existing sub-columns, pass B appends whole strips,
+// pass C (placeIntoStrips) adds pieces inside existing strips.
 //
 // This is the "go back and recheck if there's space left in the first
 // panels" idea — applied iteratively from the end.
@@ -221,6 +223,165 @@ function fillExistingOffcuts(cand, pool, kerf, panelL, panelW) {
   return rebuildCandidate(cand, newStrips, panelL, panelW);
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Back-fill pass C: place leftover pieces INSIDE the existing strips of an
+// earlier panel. (Inco Furniture 103 sec 1: one 340×94 piece was left
+// alone on a 5th board while board 4 had 41 mm of free height — a new
+// 94 mm strip needs 98.4 mm, so passes A/B could not use it; by hand the
+// 80 mm strip was simply raised to 94.)
+//
+// Three placements are tried for every leftover piece, in every strip:
+//   (1) an extra primary cut of exactly the strip's size (free length);
+//   (2) a new sub-column (Y: X/RU/U; X: U/RV/V) in the strip's free length,
+//       with the packer's own column fit model;
+//   (3) grow the strip to the piece's height (Y) / width (X), paid from the
+//       board's spare along the stacking axis; the piece becomes the new
+//       full-size primary and the strip's former primaries are demoted to
+//       single-piece sub-columns under an inner trim (the manual editor's
+//       layout for a short piece in a tall strip). Needs old size + trim
+//       ≤ new size; any trim-kerf tightness is then handled by
+//       repairTightColumns like every other column.
+// Free placements (1)(2) always win over growth; growth prefers the
+// smallest increase, then the fewest demoted pieces. Along the strip every
+// new element reserves a trailing kerf (the primary fitters' model). The
+// result must pass the WinCut grammar tripwire or the panel is returned
+// untouched. `pool[i].rem` is reduced by what was placed.
+// ─────────────────────────────────────────────────────────────────────
+function placeIntoStrips(cand, pool, kerf, panelL, panelW, trimEdge, trimSub) {
+  if (!cand || !cand.strips || cand.strips.length === 0) return cand;
+  if (!pool || !pool.some(p => p.rem > 0) || !(kerf > 0)) return cand;
+  const mode = cand.mode === 'X' ? 'X' : 'Y';
+  const EPS = 0.01;
+  const strips = JSON.parse(JSON.stringify(cand.strips));
+  const work = pool.map(p => ({ ...p }));
+  const innerRu = Math.min(trimSub, MIN_INNER_TRIM);
+  // Spare along the stacking axis. Y mirrors augmentCandidate (trimEdge on
+  // both edges); X keeps the edge trim plus one trailing kerf.
+  let spare = mode === 'Y'
+    ? (panelW - 2 * trimEdge) - usedAxis(strips, 'Y', kerf)
+    : (panelL - trimEdge - kerf) - usedAxis(strips, 'X', kerf);
+  // Free length after the last element, a kerf reserved behind every element.
+  const freeY = st => {
+    let used = 0;
+    for (const c of (st.primaryCuts || [])) used += c.qty * (c.pw + kerf);
+    for (const oc of normalizeYOffcuts(st)) used += oc.xPw + kerf;
+    return (panelL - trimSub) - used;
+  };
+  const freeX = st => {
+    let used = trimSub + (st.uQty || 0) * (st.uPh + kerf);
+    for (const vb of (st.vBars || [])) used += vb.barH + kerf;
+    return (panelW - trimSub - trimEdge) - used;
+  };
+  const fitKerf = (free, size, max) => Math.min(max, Math.floor(free / (size + kerf) + 1e-9));
+  const better = (a, b) => !b || a.rank < b.rank ||
+    (a.rank === b.rank && (a.area > b.area + 1e-9 ||
+      (Math.abs(a.area - b.area) <= 1e-9 && (a.grow < b.grow - 1e-9 ||
+        (Math.abs(a.grow - b.grow) <= 1e-9 && a.conv < b.conv)))));
+  let changed = false;
+  for (let guard = 0; guard < 64; guard++) {
+    let best = null;
+    for (const t of work) {
+      if (!(t.rem > 0)) continue;
+      for (const [pw, ph] of orientations(t)) {
+        for (const st of strips) {
+          if (mode === 'Y') {
+            const free = freeY(st);
+            if (Math.abs(ph - st.stripH) <= EPS) {
+              const q = fitKerf(free, pw, t.rem);
+              if (q < 1) continue;
+              const opt = { t, rank: 0, area: q * pw * ph, grow: 0, conv: 0, apply: () => {
+                (st.primaryCuts = st.primaryCuts || []).push({ typeId: t.id, pw, ph: st.stripH, qty: q });
+                return q; } };
+              if (better(opt, best)) best = opt;
+            } else if (ph < st.stripH) {
+              if (pw + kerf > free + 1e-9) continue;
+              let ru = null;
+              for (const r of [trimSub, MIN_INNER_TRIM]) {
+                if (r > trimSub) continue;
+                if (ph + r <= st.stripH + 1e-9) { ru = r; break; }
+              }
+              if (ru == null) continue;
+              const q = Math.min(t.rem, Math.floor((st.stripH - ru + kerf) / (ph + kerf) + 1e-9));
+              if (q < 1) continue;
+              const opt = { t, rank: 1, area: q * pw * ph, grow: 0, conv: 0, apply: () => {
+                const offs = normalizeYOffcuts(st).slice();
+                offs.push({ xPw: pw, ru, uCuts: [{ typeId: t.id, uPh: ph, uQty: q }] });
+                delete st.offcut; st.offcuts = offs;
+                return q; } };
+              if (better(opt, best)) best = opt;
+            } else {
+              const grow = ph - st.stripH;
+              if (grow > spare + 1e-9) continue;
+              if (st.stripH + innerRu > ph + 1e-9) continue;   // demoted pieces must fit under their trim
+              const prim = st.primaryCuts || [];
+              if (!prim.length) continue;
+              const q = fitKerf(free, pw, t.rem);
+              if (q < 1) continue;
+              const conv = prim.reduce((s, c) => s + c.qty, 0);
+              const opt = { t, rank: 2, area: q * pw * ph, grow, conv, apply: () => {
+                const cols = [];
+                for (const c of prim) for (let k = 0; k < c.qty; k++)
+                  cols.push({ xPw: c.pw, ru: innerRu, uCuts: [{ typeId: c.typeId, uPh: st.stripH, uQty: 1 }] });
+                const offs = cols.concat(normalizeYOffcuts(st));
+                st.stripH = ph;
+                st.primaryCuts = [{ typeId: t.id, pw, ph, qty: q }];
+                delete st.offcut; st.offcuts = offs;
+                spare -= grow;
+                return q; } };
+              if (better(opt, best)) best = opt;
+            }
+          } else {
+            const free = freeX(st);
+            if (Math.abs(pw - st.stripW) <= EPS && st.typeId === t.id && Math.abs(ph - st.uPh) <= EPS) {
+              const q = fitKerf(free, ph, t.rem);
+              if (q < 1) continue;
+              const opt = { t, rank: 0, area: q * pw * ph, grow: 0, conv: 0, apply: () => { st.uQty += q; return q; } };
+              if (better(opt, best)) best = opt;
+            } else if (pw + kerf <= st.stripW - trimSub + 1e-9) {
+              if (ph > free + 1e-9) continue;                     // fillVBars: barH <= remainH
+              const q = Math.min(t.rem, Math.floor((st.stripW - trimSub) / (pw + kerf) + 1e-9));
+              if (q < 1) continue;
+              const opt = { t, rank: 1, area: q * pw * ph, grow: 0, conv: 0, apply: () => {
+                st.vBars = (st.vBars || []).concat([{ typeId: t.id, barH: ph, vPw: pw, vQty: q, ru: trimSub }]);
+                return q; } };
+              if (better(opt, best)) best = opt;
+            } else if (pw > st.stripW + EPS) {
+              const grow = pw - st.stripW;
+              if (grow > spare + 1e-9) continue;
+              if (st.stripW + innerRu + kerf > pw + 1e-9) continue;   // fillVBars model: ru + vPw + kerf <= stripW
+              if (!(st.uQty > 0)) continue;
+              const q = fitKerf(free, ph, t.rem);
+              if (q < 1) continue;
+              const opt = { t, rank: 2, area: q * pw * ph, grow, conv: st.uQty, apply: () => {
+                const bands = [];
+                for (let k = 0; k < st.uQty; k++)
+                  bands.push({ typeId: st.typeId, barH: st.uPh, vPw: st.stripW, vQty: 1, ru: innerRu });
+                st.vBars = bands.concat(st.vBars || []);
+                st.stripW = pw; st.typeId = t.id; st.uPh = ph; st.uQty = q;
+                spare -= grow;
+                return q; } };
+              if (better(opt, best)) best = opt;
+            }
+          }
+        }
+      }
+    }
+    if (!best) break;
+    best.t.rem -= best.apply();
+    changed = true;
+  }
+  if (!changed) return cand;
+  // Grammar tripwire: never hand back a layout the renderer would reject.
+  try {
+    const rows = mode === 'Y' ? rowsY(strips, trimSub, trimEdge) : rowsX(strips, trimEdge, kerf);
+    assertWincutRowsValid(rows, 'placeIntoStrips', { panelL, panelW, kerf });
+  } catch (e) {
+    return cand;
+  }
+  work.forEach((p, i) => { pool[i].rem = p.rem; });
+  return rebuildCandidate(cand, strips, panelL, panelW);
+}
+
 function backfillPass(picks, types, panelL, panelW, kerf, trimEdge, trimSub, log) {
   let dropped = 0;
   let tightened = 0;
@@ -274,6 +435,29 @@ function backfillPass(picks, types, panelL, panelW, kerf, trimEdge, trimSub, log
           }
         }
         trial[i] = augmented;
+      }
+
+      // Pass C: place pieces inside the existing strips (new sub-column,
+      // extra same-size piece, or grow a strip and demote its pieces).
+      // The pool is rebuilt from `remaining` — pass B does not update remView.
+      const remView2 = types
+        .map(t => ({ id: t.id, w: t.w, h: t.h, grainLock: t.grainLock, groupId: t.groupId,
+                     rem: remaining[t.id] || 0, total: remaining[t.id] || 0 }))
+        .filter(t => t.rem > 0);
+      if (remView2.length > 0) {
+        const before2 = { ...trial[i].consumption };
+        const placed = placeIntoStrips(trial[i], remView2, kerf, panelL, panelW, trimEdge, trimSub);
+        if (placed !== trial[i]) {
+          for (const tid of Object.keys(placed.consumption)) {
+            const delta = (placed.consumption[tid] || 0) - (before2[tid] || 0);
+            if (delta > 0) {
+              remaining[tid] = Math.max(0, (remaining[tid] || 0) - delta);
+              if (remaining[tid] === 0) delete remaining[tid];
+            }
+          }
+          trial[i] = placed;
+          tightened++;
+        }
       }
     }
 
@@ -366,58 +550,58 @@ function rebuildCandidate(cand, newStrips, panelL, panelW) {
 // 101 …). The X-mode vBar fitter already reserves a trailing kerf, so only
 // Y-mode columns (and manual X-mode vBars) can be tight.
 //
-// Repair: after ALL packing decisions are made (Step 4 render), grow each
-// tight strip by exactly its deficit (≤ one kerf), paid from the board's
-// spare material along the strip-stacking axis — measured with the same
-// kerf-after-trim reading at board level. Pieces, counts, order and
-// efficiency are untouched; only the strip's opening cut moves. If the
-// board cannot absorb the growth, the panel is left exactly as it was and
-// `tight` reports the number of groups that remain short, so the UI can
-// warn. Everything is done on copies; the candidate is never mutated.
+// Repair: after ALL packing decisions are made (Step 4 render), lower the
+// tight column's own trim (RU / RV) by exactly its deficit, in 0.1 mm
+// steps, so trim + kerf lands where the plan assumed the pieces start.
+// Nothing else moves: strip sizes, piece sizes, counts, order and
+// efficiency are untouched (growing the strip instead would also grow its
+// full-height primary pieces — that variant was wrong and is gone). The
+// trim never drops below REPAIR_MIN_TRIM; a column that would need less is
+// left as it is and counted in `tight`. Everything is done on copies; the
+// candidate is never mutated.
 // ─────────────────────────────────────────────────────────────────────
+const REPAIR_MIN_TRIM = 5;   // mm; a 10 mm trim minus one 4.4 kerf is 5.6
 function repairTightColumns(strips, mode, panelL, panelW, kerf, trimEdge) {
-  const out = { strips, grown: 0, growMm: 0, tight: 0 };
+  const out = { strips, trimmed: 0, trimMm: 0, tight: 0 };
   if (!Array.isArray(strips) || !strips.length || !(kerf > 0)) return out;
   const trimNeed = ru => (ru > 0 ? ru + kerf : 0);       // what the saw consumes for a trim cut
-  const ceil10 = v => Math.ceil(v * 10 - 1e-9) / 10;       // grow in 0.1 mm steps, never less than needed
+  const ceil10 = v => Math.ceil(v * 10 - 1e-9) / 10;       // 0.1 mm steps, never less than the deficit
+  const round1 = v => Math.round(v * 10) / 10;
   const copy = JSON.parse(JSON.stringify(strips));
-  const needs = new Array(copy.length).fill(0);
-  let tightGroups = 0;
-  copy.forEach((st, i) => {
+  let changed = false;
+  // Lower the group's trim by its deficit against `capacity`; true when tight.
+  const fix = (group, used, capacity) => {
+    const deficit = used - capacity;
+    if (deficit <= 1e-6) return false;
+    const cut = ceil10(deficit);
+    const ru2 = round1((group.ru || 0) - cut);
+    if (ru2 >= REPAIR_MIN_TRIM - 1e-9) { group.ru = ru2; out.trimmed++; out.trimMm += cut; changed = true; }
+    else out.tight++;
+    return true;
+  };
+  copy.forEach(st => {
     if (mode === 'Y') {
-      for (const oc of normalizeYOffcuts(st)) {
+      const offs = normalizeYOffcuts(st);
+      let touched = false;
+      for (const oc of offs) {
         if (!oc.uCuts || !oc.uCuts.length) continue;
         let used = trimNeed(oc.ru || 0), q = 0;
         for (const u of oc.uCuts) { used += u.uPh * u.uQty; q += u.uQty; }
         used += kerf * Math.max(0, q - 1);
-        const deficit = used - st.stripH;
-        if (deficit > 1e-6) { needs[i] = Math.max(needs[i], ceil10(deficit)); tightGroups++; }
+        if (fix(oc, used, st.stripH)) touched = true;
       }
+      if (touched) { delete st.offcut; st.offcuts = offs; }   // write the normalized form back
     } else {
       for (const vb of (st.vBars || [])) {
         if (vb.typeId == null && !(vb.vQty > 0)) continue;   // empty spacer bar
         const used = trimNeed(vb.ru || 0) + vb.vPw * vb.vQty + kerf * Math.max(0, vb.vQty - 1);
-        const deficit = used - st.stripW;
-        if (deficit > 1e-6) { needs[i] = Math.max(needs[i], ceil10(deficit)); tightGroups++; }
+        fix(vb, used, st.stripW);
       }
     }
   });
-  if (tightGroups === 0) return out;
-  // Board capacity along the stacking axis, with the board-edge trim also
-  // consuming its kerf. The grown strips must still fit, or nothing changes.
-  const dim = st => (mode === 'Y' ? st.stripH : st.stripW);
-  const cap = mode === 'Y' ? panelW : panelL;
-  const growTotal = needs.reduce((s, n) => s + n, 0);
-  const usedNow = trimNeed(trimEdge) + copy.reduce((s, st) => s + dim(st), 0) + kerf * Math.max(0, copy.length - 1);
-  if (usedNow + growTotal > cap + 1e-6) { out.tight = tightGroups; return out; }
-  copy.forEach((st, i) => {
-    if (!(needs[i] > 0)) return;
-    if (mode === 'Y') st.stripH = Math.round((st.stripH + needs[i]) * 1000) / 1000;
-    else              st.stripW = Math.round((st.stripW + needs[i]) * 1000) / 1000;
-    out.grown++; out.growMm += needs[i];
-  });
+  if (!changed) return out;
   out.strips = copy;
-  out.growMm = Math.round(out.growMm * 10) / 10;
+  out.trimMm = round1(out.trimMm);
   return out;
 }
 
@@ -444,9 +628,9 @@ function buildPanelFromCandidate(cand, types, panelL, panelW, panelT, supplier, 
     strips, mode, rows, content,
     eff: Math.round(cand.eff * 100),
     placedCount,
-    // Repair record: strips grown for the saw's trim kerf, and groups that
-    // could not be repaired (still cut one piece short) — shown by the UI.
-    repair: { grown: repair.grown, growMm: repair.growMm, tight: repair.tight },
+    // Repair record (data only): column trims lowered for the saw's trim
+    // kerf, and groups that could not be repaired (still cut one piece short).
+    repair: { trimmed: repair.trimmed, trimMm: repair.trimMm, tight: repair.tight },
   };
 }
 
@@ -1545,4 +1729,4 @@ exports.runOptimizer = onCall(
   }
 );
 
-exports._test = { runOptimizerCore, repairTightColumns };
+exports._test = { runOptimizerCore, repairTightColumns, placeIntoStrips, backfillPass };

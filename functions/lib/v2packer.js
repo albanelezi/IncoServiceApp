@@ -20,7 +20,7 @@ src = src
   .replace(/exports\.runOptimizer = onCall\([\s\S]*?\}\s*\);/, '// stripped')
   .replace(
     /exports\._test = .*$/m,
-    'module.exports = { runOptimizerCore, consolidate, generateCandidates, rolloutFrom, rowsX, rowsY, genFileContent, packXGreedy, packYGreedy, fitYStripOffcuts, buildYCandidate };'
+    'module.exports = { runOptimizerCore, consolidate, generateCandidates, rolloutFrom, rowsX, rowsY, genFileContent, packXGreedy, packYGreedy, fitYStripOffcuts, buildYCandidate, orientations, MIN_INNER_TRIM, assertWincutRowsValid };'
   );
 
 const m = new Module(v2Path);
