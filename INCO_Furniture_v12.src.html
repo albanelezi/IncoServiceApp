@@ -11048,16 +11048,11 @@ function renderOptPanelInner(b) {
   const panelsHtml = b.panels.map((p,pi)=>{
     const effClass = p.eff>=60 ? 'eff-good' : 'eff-warn';
     const noPrice = !!p.noPrice;
-    // A column the optimizer could not repair (board had no spare): the
-    // saw's trim kerf leaves its last piece up to 4.4 mm short — warn.
-    const tightBadge = (p.repair && p.repair.tight > 0)
-      ? `<span style="color:#b91c1c;font-weight:800;" title="Kujdes: ${p.repair.tight} grup prerjesh pa hapësirë për kerf-in e rifilos — copa e fundit e grupit mund të dalë deri 4.4 mm më e shkurtër. Kontrollo copat pas prerjes.">⚠ ngushtë</span>`
-      : '';
     return `<div class="panel-card${noPrice ? ' pc-noprice' : ''}" id="panel-card-${b.id}-${pi}" style="cursor:pointer" onclick="openPanelZoom(${b.id},${pi})" title="Kliko për ta zmadhuar">
       <div class="panel-card-hdr">
         <div class="panel-card-title">Panel ${String(pi+1).padStart(2,'0')} — CUTLST0${pi}</div>
         <div class="eff-badge ${effClass}" style="display:flex;align-items:center;gap:6px">
-          <span>${p.eff}% · ${p.mode}</span>${tightBadge}
+          <span>${p.eff}% · ${p.mode}</span>
           <button onclick="event.stopPropagation();openManualEditor(${b.id},${pi})" style="background:none;border:none;cursor:pointer;font-size:12px;color:inherit;padding:0;opacity:0.7" title="Modifiko manualisht">✎</button>
           <button onclick="event.stopPropagation();downloadFile(${b.id},${pi})" style="background:none;border:none;cursor:pointer;font-size:12px;color:inherit;padding:0;opacity:0.7" title="Shkarko">↓</button>
         </div>
@@ -15403,6 +15398,7 @@ async function runOptimizer(bid) {
       placedCount: p.placedCount,
       // Tight-column repair record from the optimizer (strips grown for the
       // saw's trim kerf; `tight` = groups still cutting a piece short).
+      // Data only — not shown in the UI.
       repair: p.repair || null
     };
   });
