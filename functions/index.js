@@ -353,10 +353,81 @@ function rebuildCandidate(cand, newStrips, panelL, panelW) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// TIGHT-COLUMN REPAIR (post-processing only — never part of the search).
+//
+// On the shop saw a head trim (RX/RY/RU/RV) removes the trim value AND the
+// blade kerf: the first piece starts at trim + kerf, not at trim. The
+// packer's fitters count the kerf inside the trim, so a sub-strip column
+// may be filled to within one kerf of the strip height (e.g. RU 10 + U 438
+// in a 448 strip). The saw then has 4.4 mm less than the program assumes
+// and the LAST piece of that column comes out short by (kerf − spare):
+// the "3 mm smaller" pieces (Erion 125, Inco Furniture 103, Ersi Tarelli
+// 101 …). The X-mode vBar fitter already reserves a trailing kerf, so only
+// Y-mode columns (and manual X-mode vBars) can be tight.
+//
+// Repair: after ALL packing decisions are made (Step 4 render), grow each
+// tight strip by exactly its deficit (≤ one kerf), paid from the board's
+// spare material along the strip-stacking axis — measured with the same
+// kerf-after-trim reading at board level. Pieces, counts, order and
+// efficiency are untouched; only the strip's opening cut moves. If the
+// board cannot absorb the growth, the panel is left exactly as it was and
+// `tight` reports the number of groups that remain short, so the UI can
+// warn. Everything is done on copies; the candidate is never mutated.
+// ─────────────────────────────────────────────────────────────────────
+function repairTightColumns(strips, mode, panelL, panelW, kerf, trimEdge) {
+  const out = { strips, grown: 0, growMm: 0, tight: 0 };
+  if (!Array.isArray(strips) || !strips.length || !(kerf > 0)) return out;
+  const trimNeed = ru => (ru > 0 ? ru + kerf : 0);       // what the saw consumes for a trim cut
+  const ceil10 = v => Math.ceil(v * 10 - 1e-9) / 10;       // grow in 0.1 mm steps, never less than needed
+  const copy = JSON.parse(JSON.stringify(strips));
+  const needs = new Array(copy.length).fill(0);
+  let tightGroups = 0;
+  copy.forEach((st, i) => {
+    if (mode === 'Y') {
+      for (const oc of normalizeYOffcuts(st)) {
+        if (!oc.uCuts || !oc.uCuts.length) continue;
+        let used = trimNeed(oc.ru || 0), q = 0;
+        for (const u of oc.uCuts) { used += u.uPh * u.uQty; q += u.uQty; }
+        used += kerf * Math.max(0, q - 1);
+        const deficit = used - st.stripH;
+        if (deficit > 1e-6) { needs[i] = Math.max(needs[i], ceil10(deficit)); tightGroups++; }
+      }
+    } else {
+      for (const vb of (st.vBars || [])) {
+        if (vb.typeId == null && !(vb.vQty > 0)) continue;   // empty spacer bar
+        const used = trimNeed(vb.ru || 0) + vb.vPw * vb.vQty + kerf * Math.max(0, vb.vQty - 1);
+        const deficit = used - st.stripW;
+        if (deficit > 1e-6) { needs[i] = Math.max(needs[i], ceil10(deficit)); tightGroups++; }
+      }
+    }
+  });
+  if (tightGroups === 0) return out;
+  // Board capacity along the stacking axis, with the board-edge trim also
+  // consuming its kerf. The grown strips must still fit, or nothing changes.
+  const dim = st => (mode === 'Y' ? st.stripH : st.stripW);
+  const cap = mode === 'Y' ? panelW : panelL;
+  const growTotal = needs.reduce((s, n) => s + n, 0);
+  const usedNow = trimNeed(trimEdge) + copy.reduce((s, st) => s + dim(st), 0) + kerf * Math.max(0, copy.length - 1);
+  if (usedNow + growTotal > cap + 1e-6) { out.tight = tightGroups; return out; }
+  copy.forEach((st, i) => {
+    if (!(needs[i] > 0)) return;
+    if (mode === 'Y') st.stripH = Math.round((st.stripH + needs[i]) * 1000) / 1000;
+    else              st.stripW = Math.round((st.stripW + needs[i]) * 1000) / 1000;
+    out.grown++; out.growMm += needs[i];
+  });
+  out.strips = copy;
+  out.growMm = Math.round(out.growMm * 10) / 10;
+  return out;
+}
+
 // Render a strip-native candidate to a v2-compatible panel object.
 // ─────────────────────────────────────────────────────────────────────
 function buildPanelFromCandidate(cand, types, panelL, panelW, panelT, supplier, kerf, trimEdge, trimSub) {
-  const { mode, strips, consumption } = cand;
+  const { mode, consumption } = cand;
+  // Tight-column repair happens here, on a copy, after the search is over.
+  const repair = repairTightColumns(cand.strips, mode, panelL, panelW, kerf, trimEdge);
+  const strips = repair.strips;
   const placedCount = cand.placedCount || Object.values(consumption).reduce((a, b) => a + b, 0);
 
   const snap = types.map(t => ({
@@ -373,6 +444,9 @@ function buildPanelFromCandidate(cand, types, panelL, panelW, panelT, supplier, 
     strips, mode, rows, content,
     eff: Math.round(cand.eff * 100),
     placedCount,
+    // Repair record: strips grown for the saw's trim kerf, and groups that
+    // could not be repaired (still cut one piece short) — shown by the UI.
+    repair: { grown: repair.grown, growMm: repair.growMm, tight: repair.tight },
   };
 }
 
@@ -1471,4 +1545,4 @@ exports.runOptimizer = onCall(
   }
 );
 
-exports._test = { runOptimizerCore };
+exports._test = { runOptimizerCore, repairTightColumns };
