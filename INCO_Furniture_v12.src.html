@@ -13487,17 +13487,25 @@ function _degroupIdenticalStrips(content, block) {
       while (j < strips.length && sig(strips[j]) === sig(strips[i])) j++;
       if (j - i > 1) {
         const usedOff = new Set([0]);
+        let prevOff = 0;
         for (let k = i + 1; k < j; k++) {
           const st = strips[k], head = st[1];
           if (!head || head.type !== HEAD) continue;
           const free = freeOf(st);
-          // Upward offsets first (+1, +2, …) while the strip has the room,
-          // then downward (−1, −2, …) never below 8 mm.
+          // Upward offsets first (+1, +2, …) while the strip keeps one kerf
+          // of free length beyond the offset (the saw's head trim also eats
+          // a kerf, so the row must never get tighter than the packer
+          // allows), then downward (−1, −2, …) never below 8 mm. Offsets
+          // are unique within the run when possible; when they run out, any
+          // offset that differs from the previous strip's still breaks the
+          // pack (only consecutive identical strips are cut together).
+          const fits = d => d > 0 ? d + kerf <= free + 1e-6 : head.val + d >= 8 - 1e-6;
           let pick = null;
-          for (let d = 1; d <= 20 && pick == null; d++) if (!usedOff.has(d) && d <= free + 1e-6) pick = d;
-          for (let d = 1; d <= 20 && pick == null; d++) if (!usedOff.has(-d) && head.val - d >= 8 - 1e-6) pick = -d;
+          for (let d = 1; d <= 20 && pick == null; d++) if (!usedOff.has(d) && fits(d)) pick = d;
+          for (let d = 1; d <= 2 && pick == null; d++) if (!usedOff.has(-d) && fits(-d)) pick = -d;
+          for (const d of [-1, -2, 1, 2]) if (pick == null && d !== prevOff && fits(d)) pick = d;
           if (pick == null) continue;
-          usedOff.add(pick);
+          usedOff.add(pick); prevOff = pick;
           head.val = Math.round((head.val + pick) * 1000) / 1000;
           lines[head.li] = head.num + '=' + head.type + ',' + head.val.toFixed(6) + ',' + head.rep + ',' + head.rest;
           changed++;
