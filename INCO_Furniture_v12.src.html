@@ -13411,6 +13411,109 @@ function _stripLabelRefsIfDisabled(content, block) {
   return content.replace(/^(\d+)=\(\d+\)$/gm, '$1=');
 }
 
+// ── DE-GROUP IDENTICAL CONSECUTIVE STRIPS ──────────────────────────────
+// The saw cuts consecutive strips with an identical cut sequence as one
+// pack ("3 panels at once") and prints ONE label for the pack, so the
+// other pieces leave the saw unlabelled (Inco Furniture 104 sec 4 panel 1).
+// Shop test 2026-11-01 (TEST_ETIKETA kit): unique ids in [Dati] (T1),
+// padded strings (T2) and a rep-N strip (T5) did NOT help — T5 printed N
+// identical labels; a different head trim per duplicate strip (T3: RX 10 /
+// 11 / 12) and re-ordering so duplicates are never adjacent (T4) both gave
+// one label per piece.  We keep the stored strip order (it is what the 2D
+// preview shows) and give the k-th duplicate of a run a head trim offset
+// by a few mm — upward when the strip has that much free length, otherwise
+// downward (never below 8 mm).  Piece sizes, order, counts and references
+// are untouched; only the strip's RX (Y mode) / RU (X mode) value changes.
+// The result must pass the envelope validator or the file is left as it
+// was.  Runs only when labels are printed: without labels a pack cut is
+// simply faster.  Applied at write time to every file, so manual-editor
+// and older panels are covered too.
+function _degroupIdenticalStrips(content, block) {
+  if (!content || (block && block.printLabels === false)) return content;
+  try {
+    const lines = String(content).split(/\r?\n/);
+    let panelL = 0, panelW = 0;
+    for (const l of lines) {
+      if (l.startsWith('Lunghezza=')) panelL = parseFloat(l.slice(10));
+      else if (l.startsWith('Larghezza=')) panelW = parseFloat(l.slice(10));
+    }
+    const kerf = parseFloat(block && block.cfg && block.cfg.kerf) || 4.4;
+    let rigStart = -1, rigEnd = lines.length;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i] === '[Righe]') rigStart = i;
+      else if (rigStart >= 0 && lines[i].startsWith('[')) { rigEnd = i; break; }
+    }
+    if (rigStart < 0 || !(panelL > 0) || !(panelW > 0)) return content;
+    const rows = [];
+    for (let i = rigStart + 1; i < rigEnd; i++) {
+      const m = lines[i].match(/^(\d+)=([A-Z*]+),([0-9.]+),(\d+),(.*)$/);
+      if (m) rows.push({ li: i, num: m[1], type: m[2], val: parseFloat(m[3]), rep: parseInt(m[4], 10), rest: m[5] });
+    }
+    if (rows.length < 2) return content;
+    const mode = rows[0].type === 'RY' ? 'Y' : rows[0].type === 'RX' ? 'X' : null;
+    if (!mode) return content;
+    const OPEN = mode === 'Y' ? 'Y' : 'X', HEAD = mode === 'Y' ? 'RX' : 'RU';
+    const strips = [];
+    let si = 0;
+    while (si < rows.length && (rows[si].type === 'RX' || rows[si].type === 'RY')) si++;
+    while (si < rows.length) {
+      let ei = si + 1;
+      while (ei < rows.length && rows[ei].type !== OPEN) ei++;
+      strips.push(rows.slice(si, ei));
+      si = ei;
+    }
+    const sig = st => st.map(r => r.type + ',' + r.val + ',' + r.rep).join('|');
+    // Free length along the strip's own axis (kerf between elements only).
+    const freeOf = st => {
+      const head = st[1];
+      if (!head || head.type !== HEAD) return -1;
+      let used = head.val, n = 0, ast = false;
+      if (mode === 'Y') {
+        for (const r of st.slice(2)) {
+          if (r.type === 'U*') ast = true;
+          else if (r.type === 'X') { used += r.val * (ast ? 1 : r.rep); n += ast ? 1 : r.rep; }
+        }
+        return panelL - used - kerf * Math.max(0, n - 1);
+      }
+      for (const r of st.slice(2)) {
+        if (r.type === 'V*') ast = true;
+        else if (r.type === 'U') { used += r.val * (ast ? 1 : r.rep); n += ast ? 1 : r.rep; }
+      }
+      return panelW - used - kerf * Math.max(0, n - 1);
+    };
+    let changed = 0;
+    for (let i = 0; i < strips.length;) {
+      let j = i + 1;
+      while (j < strips.length && sig(strips[j]) === sig(strips[i])) j++;
+      if (j - i > 1) {
+        const usedOff = new Set([0]);
+        for (let k = i + 1; k < j; k++) {
+          const st = strips[k], head = st[1];
+          if (!head || head.type !== HEAD) continue;
+          const free = freeOf(st);
+          // Upward offsets first (+1, +2, …) while the strip has the room,
+          // then downward (−1, −2, …) never below 8 mm.
+          let pick = null;
+          for (let d = 1; d <= 20 && pick == null; d++) if (!usedOff.has(d) && d <= free + 1e-6) pick = d;
+          for (let d = 1; d <= 20 && pick == null; d++) if (!usedOff.has(-d) && head.val - d >= 8 - 1e-6) pick = -d;
+          if (pick == null) continue;
+          usedOff.add(pick);
+          head.val = Math.round((head.val + pick) * 1000) / 1000;
+          lines[head.li] = head.num + '=' + head.type + ',' + head.val.toFixed(6) + ',' + head.rep + ',' + head.rest;
+          changed++;
+        }
+      }
+      i = j;
+    }
+    if (!changed) return content;
+    _meAssertWincutRowsValid(rows.map(r => ({ type: r.type, val: r.val, qty: r.rep })),
+      'de-group', { panelL, panelW, kerf });
+    return lines.join('\r\n');
+  } catch (e) {
+    return content;
+  }
+}
+
 // Toggle handler bound to the per-block "Printo Etiketat" checkbox in the
 // block header.  Flips `b.printLabels` AND mirrors the flag onto every
 // sibling sharing the same material+format, because the WinCut .txt files
@@ -15551,10 +15654,11 @@ function downloadFile(bid, idx) {
   const p = b.panels[idx];
   const dispatch = (content, suffix) => {
     // Repair "#—-N" sub-label placeholders (baked before the first save
-    // allocated a fatura), then apply the per-block "Printo Etiketat"
+    // allocated a fatura), de-group identical consecutive strips (one label
+    // per piece on the saw), then apply the per-block "Printo Etiketat"
     // toggle: when off, blanks all [Riferimenti] references so WinCut
     // prints no labels for this material.
-    const out = _stripLabelRefsIfDisabled(_fixupManualSubLabels(content), b);
+    const out = _stripLabelRefsIfDisabled(_degroupIdenticalStrips(_fixupManualSubLabels(content), b), b);
     const blob = new Blob([out], { type: 'text/plain' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -15646,7 +15750,7 @@ function _collectWincutFiles(klienti, fatura) {
     // sibling's printLabels reflects the group's setting.  The sub-label
     // fixup runs first — shkarkoWincut saves before collecting, so the
     // fatura is guaranteed allocated by now.
-    const strip = (c) => _stripLabelRefsIfDisabled(_fixupManualSubLabels(c), b);
+    const strip = (c) => _stripLabelRefsIfDisabled(_degroupIdenticalStrips(_fixupManualSubLabels(c), b), b);
     b.panels.forEach((p, pi) => {
       const idx  = String(pi + 1).padStart(2, '0');
       const base = `${klienti}_${fatura}-${subNosStr}_${fileBase}_${idx}`;
