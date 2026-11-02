@@ -10,7 +10,6 @@
       "**/node_modules/**",
       "functions/**",
       "bundle-worker.js",
-      "optimizer-worker.js",
       "optimizer-worker.min.js",
       "optimizer-worker.obf.js",
       "INCO_Furniture_v12.src.html",
@@ -23,6 +22,15 @@
       "**/*.txt",
       "**/*.md",
       "handover-tools/**"
+    ],
+    "headers": [
+      {
+        "source": "/optimizer-worker.js",
+        "headers": [
+          { "key": "Access-Control-Allow-Origin", "value": "https://inco-oferta.web.app" },
+          { "key": "Cache-Control", "value": "no-cache" }
+        ]
+      }
     ],
     "rewrites": [
       { "source": "**", "destination": "/INCO_Furniture_v12.html" }

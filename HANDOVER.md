@@ -11,7 +11,7 @@ Written 2026-10-09 for a Claude Code session that will merge parts of this app, 
 3. **Never deploy `firestore.passB.rules`.** It is the role-aware ruleset, and it depends on the `partner_index` collection, which is **empty** in production. Deploying it would lock out every partner.
 4. **Never write an order's whole `blocks` array from an in-memory copy.** Every workflow write is a transaction that re-reads the order and changes one section, matched by `block.id`. Whole-array writes from stale copies silently rolled back other devices' work; fixed 2026-10-06. See §9.
 5. **`porosite` and `porosite_index` must always be written together, in the same transaction.** At boot the app loads only `porosite_index`. An order missing from the index is invisible.
-6. **Hosting publishes the whole project folder** (`"public": "."`). Until 2026-10-06 that included `.git/` and customer WinCut files. A correct deploy prints `found 2 files`. If you see more, stop and check what is being published.
+6. **Hosting publishes the whole project folder** (`"public": "."`). Until 2026-10-06 that included `.git/` and customer WinCut files. A correct deploy prints `found 3 files` (the page, package.json and `optimizer-worker.js`, which since 2026-11-02 is served with a CORS header for https://inco-oferta.web.app so that Inco Oferta can run the optimizer for its quotes). If you see more, stop and check what is being published.
 7. **No backups.** Point-in-time recovery is OFF, delete protection is OFF, and there are no scheduled exports. Take an export before any database merge or migration (§14.3).
 8. **`block.id` is unique only within one order** (a per-order counter, `blockIdCtr`). The visible section number `#<fatura>-<n>` is the 1-based *array position*. It changes if a section is inserted or removed. Anything stored long-term must key on `(orderId, block.id)`, never on the position.
 9. **Inline `onclick="fn(...)"` handlers call top-level global functions by name.** The minifier deliberately keeps top-level names. If you move code into ES modules or a framework, those functions must stay on `window`.
@@ -105,7 +105,7 @@ node _install-local-optimizer.js # embeds the .obf (or .min / raw) bundle into s
 # 3. build the served page:
 node _minify-main-script.js      # → INCO_Furniture_v12.html
 # 4. verify (see §15), then deploy:
-firebase deploy --only hosting --project incoservice-4e196          # expect "found 2 files"
+firebase deploy --only hosting --project incoservice-4e196          # expect "found 3 files"
 firebase deploy --only firestore:rules --project incoservice-4e196  # only when firestore.rules changed
 ```
 
