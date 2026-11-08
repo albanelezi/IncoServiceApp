@@ -3729,7 +3729,7 @@ body.catalog-bilanc #cfg-footer-bar { display: none !important; }
   <div class="modal blr-modal">
     <div class="mhead"><div><h2>Faturat në Inco Bilanc</h2><div class="blr-sub" id="blr-sub"></div></div><button class="mx" onclick="blrClose(false)">✕</button></div>
     <div class="mbody">
-      <div class="blr-note">Porosia u ruajt. Kontrollo faturat që do të krijohen në Bilanc: hiq shenjën te një faturë që nuk duhet krijuar (p.sh. klienti solli pllakat e veta) ose ndrysho sasinë dhe çmimin. Zgjedhjet mbahen mend edhe kur porosia ruhet sërish.</div>
+      <div class="blr-note">Porosia u ruajt. Faturat e reja të klientit <b>nuk krijohen vetë</b>: shëno "Krijo këtë faturë" te ato që duhen (për porositë e Inco Furniture fatura e projektit vjen e shënuar). Sasinë dhe çmimin mund t'i ndryshosh. Zgjedhjet mbahen mend edhe kur porosia ruhet sërish; faturat e krijuara ndjekin porosinë.</div>
       <div class="blr-warnings" id="blr-warnings" style="display:none"></div>
       <div id="blr-parts"></div>
     </div>
@@ -5804,7 +5804,8 @@ async function bilancReviewOrder(order, opts) {
     else if (opts.always) shellToast('Kjo porosi nuk ka fatura në Bilanc.', 'ok');
     return null;
   }
-  const changes = parts.some(p => p.state === 'new' || p.state === 'update' || p.state === 'remove');
+  // a new client invoice waits unticked for the workshop's decision (pending): that is a reason to show the dialog too
+  const changes = parts.some(p => p.state === 'new' || p.state === 'update' || p.state === 'remove' || (p.state === 'excluded' && p.pending));
   if (!changes && !opts.always) return null;   // nothing would change: no dialog
   _blrOpen(order, pv);
   return pv;
@@ -5841,7 +5842,7 @@ function _blrRender() {
     // what will happen after saving: unticked = not made (or, if it exists, removed to Bilanc's bin)
     let shown = p.state, stateLabel = '';
     if (!included) { shown = p.number ? 'remove' : 'excluded'; stateLabel = p.number ? 'Hiqet (shkon te Koshi)' : 'Nuk krijohet'; }
-    else if (p.state === 'excluded') { shown = 'new'; stateLabel = 'Krijohet sërish'; }
+    else if (p.state === 'excluded') { shown = 'new'; stateLabel = p.pending ? 'Krijohet' : 'Krijohet sërish'; }
     const [label, fg, bg] = _BLR_STATE[shown] || _BLR_STATE.same;
     stateLabel = stateLabel || label;
     const badge = '<span class="blr-badge" style="color:' + fg + ';background:' + bg + '">' + escHtml(stateLabel) + (p.number ? ' · Nr. ' + escHtml(p.number) : '') + '</span>';
