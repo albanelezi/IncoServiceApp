@@ -382,6 +382,45 @@ function placeIntoStrips(cand, pool, kerf, panelL, panelW, trimEdge, trimSub) {
   return rebuildCandidate(cand, strips, panelL, panelW);
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// TRIMMED-BOARD GUARD.  trimCandidateInPlace lowers quantities on a board
+// after some of its pieces moved elsewhere (back-fill partial moves, B&B
+// over-cover).  When a strip's primary cut is removed while one of its
+// sub-columns stays, the strip has no primary any more and cannot be
+// rendered (rowsY/rowsX guard: "primary-less strip … refusing to
+// restructure" — Land Bakiu 2026-11-12, column 577×118).  So every trimmed
+// board is validated against the WinCut grammar; an invalid one is
+// re-packed from scratch with the production greedy packer, same mode,
+// and only a full one-board placement that renders is accepted.
+// ─────────────────────────────────────────────────────────────────────
+function candidateRenders(cand, panelL, panelW, kerf, trimEdge, trimSub) {
+  if (!cand || !cand.strips || cand.strips.length === 0) return false;
+  try {
+    const rows = cand.mode === 'Y'
+      ? rowsY(cand.strips, trimSub, trimEdge)
+      : rowsX(cand.strips, trimEdge, kerf);
+    assertWincutRowsValid(rows, 'trimmed board', { panelL, panelW, kerf });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function repackOnOneBoard(types, demand, mode, panelL, panelW, kerf, trimEdge, trimSub) {
+  const live = types
+    .filter(t => (demand[t.id] || 0) > 0)
+    .map(t => ({ id: t.id, w: t.w, h: t.h, grainLock: t.grainLock, groupId: t.groupId,
+                 rem: demand[t.id], total: demand[t.id] }));
+  if (live.length === 0) return null;
+  const res = mode === 'Y'
+    ? packYGreedy(live.map(t => ({ ...t })), panelL - trimSub - trimEdge, panelW - 2 * trimEdge, kerf, trimSub)
+    : packXGreedy(live.map(t => ({ ...t })), panelL - 2 * trimEdge, panelW - trimSub - trimEdge, kerf, trimEdge, trimSub);
+  if (!res || !res.strips || res.strips.length === 0) return null;
+  if (!res.finalRem.every(t => t.rem <= 0)) return null;
+  const cand = rebuildCandidate({ mode, strips: res.strips }, res.strips, panelL, panelW);
+  return candidateRenders(cand, panelL, panelW, kerf, trimEdge, trimSub) ? cand : null;
+}
+
 function backfillPass(picks, types, panelL, panelW, kerf, trimEdge, trimSub, log) {
   let dropped = 0;
   let tightened = 0;
@@ -484,8 +523,20 @@ function backfillPass(picks, types, panelL, panelW, kerf, trimEdge, trimSub, log
         const idxOf = new Map(types.map((t, i) => [t.id, i]));
         const remDemand = types.map(t => stillThere[t.id] || 0);
         const trimmed = trimCandidateInPlace(picks[picks.length - 1], remDemand, idxOf, panelL, panelW);
+        // A strip that lost its primary cut cannot be rendered: re-pack
+        // what is still on the board, or give this round's partial moves
+        // up and keep every board exactly as it was.
+        let lastBoard = trimmed;
+        if (trimmed && !candidateRenders(trimmed, panelL, panelW, kerf, trimEdge, trimSub)) {
+          lastBoard = repackOnOneBoard(types, stillThere, trimmed.mode, panelL, panelW, kerf, trimEdge, trimSub);
+          if (!lastBoard) {
+            if (log) log('backfill', 'partial moves reverted: trimmed last board does not render');
+            break outer;
+          }
+          if (log) log('backfill', 'trimmed last board re-packed');
+        }
         const newPicks = trial.slice();
-        if (trimmed) newPicks.push(trimmed);
+        if (lastBoard) newPicks.push(lastBoard);
         picks = newPicks;
       }
       break outer;
@@ -1630,6 +1681,20 @@ async function applyTrimAndBackfill(pickedRefs, types, demArr,
   for (const c of pickedRefs) {
     const trimmed = trimCandidateInPlace(c, remDemand, idxOf, panelL, panelW);
     if (trimmed === null) { droppedCount++; continue; }
+    if (!candidateRenders(trimmed, panelL, panelW, kerf, trimEdge, trimSub)) {
+      // The trim removed a strip's primary cut: try a fresh one-board
+      // packing of the same pieces; otherwise hand them back to the top-up
+      // loop below, which packs them with the full candidate generator.
+      const repacked = repackOnOneBoard(types, trimmed.consumption, trimmed.mode, panelL, panelW, kerf, trimEdge, trimSub);
+      if (repacked) { finalCands.push(repacked); continue; }
+      for (const tid of Object.keys(trimmed.consumption)) {
+        const i = idxOf.get(Number(tid));
+        if (i !== undefined) remDemand[i] += trimmed.consumption[tid];
+      }
+      droppedCount++;
+      if (log) log('trim in-place', 'a trimmed pick does not render; its pieces go to the top-up loop');
+      continue;
+    }
     finalCands.push(trimmed);
   }
   if (log) {
@@ -1729,4 +1794,4 @@ exports.runOptimizer = onCall(
   }
 );
 
-exports._test = { runOptimizerCore, repairTightColumns, placeIntoStrips, backfillPass };
+exports._test = { runOptimizerCore, repairTightColumns, placeIntoStrips, backfillPass, candidateRenders, repackOnOneBoard };
