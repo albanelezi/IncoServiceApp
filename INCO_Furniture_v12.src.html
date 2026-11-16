@@ -5072,6 +5072,9 @@ function _summaryOfOrder(order) {
       formatId:   b.formatId   || null,
       tenieId:    b.tenieId    || null,
     })),
+    // The Inco Bilanc project of an Inco Furniture order (the list shows it beside the client).
+    bilancProjectId:   order.bilancProjectId || '',
+    bilancProjectName: order.bilancProjectName || '',
     mtime:       Date.now(),
   };
 }
@@ -6324,7 +6327,7 @@ function renderOrdersTable(list) {
     return `<tr style="cursor:pointer;" onclick="openOrder(${p.id})"
         onmouseover="this.style.background='var(--page-bg)'"
         onmouseout="this.style.background=''">
-      <td><strong>${escHtml(liveName)}</strong></td>
+      <td><strong>${escHtml(liveName)}</strong>${p.bilancProjectName ? `<span style="margin-left:8px;font-size:11px;color:var(--gold);font-family:var(--mono);white-space:nowrap;" title="Projekti në Inco Bilanc">· ${escHtml(p.bilancProjectName)}</span>` : ''}</td>
       ${partnerCell}
       <td style="font-family:var(--mono)">${escHtml(p.fatura||'—')}${driftIcon}</td>
       <td style="font-family:var(--mono);font-size:12px">${escHtml(p.data||'—')}</td>
