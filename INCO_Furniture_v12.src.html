@@ -10535,7 +10535,7 @@ function updateBlockPrice(b) {
   const panelLbl = s(`bprice-panels-lbl-${b.id}`);
   const _pbl = _panelBilling(b);
   if(panelLbl) panelLbl.textContent = _pbl.fillPanels > 0
-    ? `Pllaka (${_pbl.full} + ${String(_pbl.fillShare).replace('.', ',')})`
+    ? `Pllaka (${_pbl.full} + ${_pbl.fillM2.toFixed(3).replace('.', ',')} m²)`
     : (bp.nBilled !== nPanels)
     ? `Pllaka (${bp.nBilled}/${nPanels})`
     : `Pllaka (${nPanels})`;
@@ -10707,7 +10707,7 @@ function togglePanelFill(bid, pi, checked) {
 function _panelFillInfo(b, p) {
   const m2 = _panelPiecesM2(p, b), bm2 = _boardM2(b);
   const sh = _fillShare(m2, bm2);
-  return sh > 0 ? `${String(sh).replace('.', ',')} e pllakës` : '';
+  return sh > 0 ? `${m2.toFixed(3).replace('.', ',')} m² (${String(sh).replace('.', ',')} e pllakës)` : '';
 }
 // Re-render a section's panel cards (used to undo a click on a locked order).
 function renderOptPanelRefresh(b) {
@@ -16750,7 +16750,7 @@ function buildInvoicePDF(klienti, fatura, data) {
       if(_pb.fillShare > 0){
         const fillTotal = _pb.fillShare * panelPrice;
         grandTotal += Math.round(fillTotal);
-        invRows.push([`Shtesë pllake (mbetje) — ${b.name}`, String(_pb.fillShare).replace('.', ','), 'pllakë', fmt(panelPrice), fmt(fillTotal)]);
+        invRows.push([`Shtesë pllake (mbetje) ${_pb.fillM2.toFixed(3).replace('.', ',')} m² nga ${_pb.boardM2.toFixed(3).replace('.', ',')} m² — ${b.name}`, String(_pb.fillShare).replace('.', ','), 'pllakë', fmt(panelPrice), fmt(fillTotal)]);
       }
       if(nExcluded > 0){
         invRows.push([`Pllaka nga magazina — pa çmim`, nExcluded, 'pllakë', '—', fmt(0)]);
