@@ -19,7 +19,9 @@ const code =
   extract('function _injectCodesIntoTxt', 'function _meGenFileContent') +
   extract('function _rawMatchesStrips', 'function downloadFile');
 
-const makeFns = new Function('document', 'blocks', 'loadPrices', '_siblingBlocks',
+const makeFns = new Function('document', 'blocks', 'loadPrices', '_siblingBlocks', 'blockHasTenie',
+  // label builders only send banding counts for a banded section; these tests use banded sections
+  "if (typeof blockHasTenie !== 'function') blockHasTenie = () => true;\n" +
   code + '\nreturn { _buildImportQueueForGroup, _buildImportQueueForBlock, _injectCodesIntoTxt, _fixupManualSubLabels, _rawMatchesStrips, _rebakeBlockLabels };');
 
 // ── Shared stubs ─────────────────────────────────────────────────────

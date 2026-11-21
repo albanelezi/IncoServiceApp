@@ -4170,10 +4170,10 @@ function statusPillHtml(orderId) {
 // should bump a 'perfunduar' order back to 'procesim'. Excludes free-text
 // fields (koment) and computed/transient fields (panels, _idx, _m2…).
 function structuralFingerprint(order) {
-  const blocks = (order.blocks || []).map(b => ({
+  const blocks = (order.blocks || []).map(b => { const _band = _blockBandsSomething(b); return {
     materialId: b.materialId,
     formatId:   b.formatId,
-    tenieId:    b.tenieId || null,
+    tenieId:    _band ? (b.tenieId || null) : null,
     cfg: {
       lung:  b.cfg?.lung,  larg:  b.cfg?.larg,  spes:  b.cfg?.spes,
       kerf:  b.cfg?.kerf,  trimX: b.cfg?.trimX, trimY: b.cfg?.trimY,
@@ -4187,7 +4187,7 @@ function structuralFingerprint(order) {
     printLabels: b.printLabels !== false,
     rows: (b.rows || []).map(r => ({
       l: r.l, g: r.g, s: r.s,
-      ag: r.ag || 0, as_: r.as_ || 0,
+      ag: _band ? (r.ag || 0) : 0, as_: _band ? (r.as_ || 0) : 0,
       anen: r.anen || '',
       lyerje:     !!r.lyerje,
       frezim:     !!r.frezim,
@@ -4203,7 +4203,7 @@ function structuralFingerprint(order) {
       ds_s: (r.doubledSides && typeof r.doubledSides.shkurter === 'number') ? r.doubledSides.shkurter
             : (r.doubledSides && r.doubledSides.shkurter ? 1 : 0),
     })),
-  }));
+  }; });
   return JSON.stringify(blocks);
 }
 
@@ -4226,6 +4226,7 @@ function fullFingerprint(order) {
     dimMode: b.dimMode || 'Fikse',
     dimAdd:  b.dimAdd  || 0,
     cutDir:  b.cutDir  || 'auto',
+    mdfBanding: b.mdfBanding === true,
     kodiBojes: b.kodiBojes || '',
     // "Printo Etiketat" toggle in the block header — a setting change here
     // must count as an edit so the operator can't accidentally lose the
@@ -6422,8 +6423,7 @@ async function openOrder(id, opts) {
 
     if(b.tenieId == null) {
       const tenies = getAllTenies();
-      const beh = getMaterialBehavior(getMaterialById(b.materialId));
-      b.tenieId = (beh.hasTenie && tenies[0]) ? tenies[0].id : null;
+      b.tenieId = (blockHasTenie(b) && tenies[0]) ? tenies[0].id : null;
     }
     b.rows.forEach(r => {
       if(r.fromDopjim == null) r.fromDopjim = false;
@@ -7031,6 +7031,8 @@ const PANEL_TYPE_DISPLAY = {
 
 // Resolve the BEHAVIOR of a material.
 // Returns: hasTenie, hasM2 (lyerje), hasFrezim, name, cssClass.
+// BANDING RULE (2026-11): every material is edge-banded (bordim) except fiber; plain MDF too, but only in sections
+// created after the rule (see blockHasTenie: older plain-MDF sections keep the old rule).
 // FIBER RULE: never has tenie, never has frezim — only paint (lyerje).
 function getMaterialBehavior(material) {
   if(!material) return { hasTenie: false, hasM2: false, hasFrezim: false, name: 'Material', cssClass: 'mel' };
@@ -7039,7 +7041,7 @@ function getMaterialBehavior(material) {
   if(t === 'betoforme') return { hasTenie: true,  hasM2: false, hasFrezim: false, name: PANEL_TYPE_DISPLAY.betoforme.name, cssClass: 'bet' };
   if(t === 'mdf') {
     return {
-      hasTenie:  !!material.mePrimoso,
+      hasTenie:  true,
       hasM2:     true,
       hasFrezim: true,
       name:      material.mePrimoso ? 'MDF me rimeso' : 'MDF',
@@ -7861,8 +7863,7 @@ function getTeniePricesForBlock(b) {
   const zero = { price22:0, price28:0, price40:0, price56:0 };
   const material = getMaterialById(b.materialId);
   if(!material) return zero;
-  const beh = getMaterialBehavior(material);
-  if(!beh.hasTenie) return zero;
+  if(!blockHasTenie(b)) return zero;
   const tenies = getAllTenies();
   if(tenies.length === 0) return zero;
   const chosen = getTenieById(b.tenieId) || tenies[0];
@@ -7877,8 +7878,7 @@ function getTeniePricesForBlock(b) {
 function getTenieDescriptionForBlock(b) {
   const material = getMaterialById(b.materialId);
   if(!material) return '';
-  const beh = getMaterialBehavior(material);
-  if(!beh.hasTenie) return '';
+  if(!blockHasTenie(b)) return '';
   const tenies = getAllTenies();
   if(tenies.length === 0) return '';
   const chosen = getTenieById(b.tenieId) || tenies[0];
@@ -8666,9 +8666,7 @@ function refreshAllBlocksAfterTenieTypesChange() {
 
     // Re-validate tenie selection: if the current tenieId no longer exists in the
     // tenies list, fall back to the first available variant.
-    const material = getMaterialById(b.materialId);
-    const beh = getMaterialBehavior(material);
-    if(beh.hasTenie) {
+    if(blockHasTenie(b)) {
       const tenies = getAllTenies();
       const stillValid = !!getTenieById(b.tenieId);
       if(!stillValid && tenies[0]) b.tenieId = tenies[0].id;
@@ -8726,8 +8724,20 @@ function deriveBlockTypeFromMaterial(material) {
 }
 
 // Behavior helpers — read from the material, not a pseudo-panel
+// Plain MDF = MDF without veneer ("me rimeso" is banded since always).
+function _isPlainMdf(m) { return !!m && m.type === 'mdf' && !m.mePrimoso; }
+// A plain-MDF section is banded only when it carries b.mdfBanding (every section created after the 2026-11 rule,
+// or an old one switched on with "+ Bordim"). Older sections keep the old rule, so their saved banding counts (written
+// by the old 1A/2A button, never typed) are not shown, charged, sent to Bilanc or queued for Bordim.
+// A banded section with at least one banded edge on a row that has pieces (doubler copies included: they are billed).
+function _blockBandsSomething(b) {
+  return blockHasTenie(b) && (b.rows || []).some(r => r && (parseInt(r.s) || 0) > 0 && ((parseInt(r.ag) || 0) > 0 || (parseInt(r.as_) || 0) > 0));
+}
 function blockHasTenie(b) {
-  return getMaterialBehavior(_materialOfBlock(b)).hasTenie;
+  const m = _materialOfBlock(b);
+  if (!getMaterialBehavior(m).hasTenie) return false;
+  if (_isPlainMdf(m) && !(b && b.mdfBanding === true)) return false;
+  return true;
 }
 function blockHasM2(b) {
   return getMaterialBehavior(_materialOfBlock(b)).hasM2;
@@ -8822,6 +8832,7 @@ function addBlock(materialId, formatId) {
     dimAdd: 0,
     cutDir: 'auto',
     tenieId: defaultTenieId,
+    mdfBanding: true,    // created under the 2026-11 rule: plain MDF is banded (see blockHasTenie)
     printLabels: true,   // per-block WinCut-label toggle (see openOrder backfill)
     // Per-section prices (Lek). Entered directly on the material section — see
     // calcBlockPrice / the price-inputs UI in renderBlock. Panel price starts
@@ -9110,9 +9121,13 @@ function changeBlockFormat(bid, materialId, formatId) {
   // Duplicates allowed: if another block already uses this material+format,
   // the auto-suffix pass below appends " (2)", " (3)", … so the two coexist
   // with distinguishable names (used in WinCut filenames + workflow cards).
+  // an old plain-MDF section (no flag) stays on the old rule through a change of format; any other section is
+  // marked as following the 2026-11 rule
+  const wasLegacyMdf = b.mdfBanding === false || (_isPlainMdf(_materialOfBlock(b)) && b.mdfBanding !== true);
   b.materialId = materialId;
   b.formatId   = formatId;
   syncBlockFromMaterialFormat(b);
+  b.mdfBanding = !wasLegacyMdf;
   // Re-uniquify name: syncBlockFromMaterialFormat just set the base name; if
   // another block already has it, bump our suffix.  Done by temporarily
   // removing `b` from the dedup pool so _uniqueBlockName sees the rest.
@@ -9121,8 +9136,7 @@ function changeBlockFormat(bid, materialId, formatId) {
   b.name = _uniqueBlockName(savedName);
   // Re-validate tenie selection (compatibility doesn't depend on format anymore — every variant has both prices,
   // but in case the material no longer supports tenie, drop tenieId).
-  const beh = getMaterialBehavior(getMaterialById(materialId));
-  if(!beh.hasTenie) b.tenieId = null;
+  if(!blockHasTenie(b)) b.tenieId = null;
   else if(!b.tenieId) {
     const tenies = getAllTenies();
     if(tenies[0]) b.tenieId = tenies[0].id;
@@ -10115,14 +10129,58 @@ function refreshBlockAfterDimChange(b) {
   markBlockDirty(b);
 }
 
+// Switch an old plain-MDF section (saved before the 2026-11 rule) to banding. Its stored banding counts were never typed
+// (the old 1A/2A button wrote them), so they start empty; the operator enters the real banding.
+function enableMdfBanding(bid) {
+  const b = blocks.find(x => x.id === bid);
+  if (!b || b.mdfBanding === true) return;
+  if (window._editingOrderId != null && isOrderLocked(window._editingOrderId)) { shellToast('Porosia është dorëzuar — bllokuar', 'err'); return; }
+  // the old 1A/2A button wrote numbers equal to the painted faces (1A → 1/1, 2A → 2/2); PDF-imported counts are kept
+  const _fromAnen = r => typeof r.ag === 'number' && typeof r.as_ === 'number' && r.ag === r.as_ && r.ag === (r.anen === '2A' ? 2 : 1);
+  let _kept = 0;
+  b.rows.forEach(r => {
+    if (r.fromDopjim) { r.ag = '0'; r.as_ = '0'; return; }   // doubler copies never carry their own banding
+    if (_fromAnen(r)) { r.ag = ''; r.as_ = ''; return; }
+    if ((parseInt(r.ag) || 0) > 0 || (parseInt(r.as_) || 0) > 0) _kept++;
+  });
+  b.mdfBanding = true;
+  if (!b.tenieId) { const t = getAllTenies(); b.tenieId = t[0] ? t[0].id : null; }
+  if (b.priceBoard == null || b.priceBoard === '') b.priceBoard = 70;
+  calcBlock(b);
+  const blockEl = document.getElementById(`block-${bid}`);
+  if (blockEl) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = renderBlock(b);
+    blockEl.replaceWith(tmp.firstElementChild);
+    b.rows.forEach(r => updateTenieLines(b, r));
+    _redrawBlockCanvases(b);
+  }
+  if (typeof refreshOptButton === 'function') refreshOptButton(b);
+  if (typeof refreshStaleWarning === 'function') refreshStaleWarning(b);
+  updateBlockPrice(b);
+  updateGrandTotal();
+  shellToast('Bordimi u aktivizua: shëno anët e bordura te "Bord Lart." / "Bord Gjer." dhe ruaj porosinë' + (_kept ? ` (u mbajtën bordimet e ${_kept} rreshtave të importuar nga PDF)` : ''), 'ok');
+}
+
+// Redraw a section's cutting-plan canvases after its block was re-rendered (same as toggleBlock does).
+function _redrawBlockCanvases(b) {
+  if (!b || b.collapsed || !Array.isArray(b.panels) || !b.panels.length) return;
+  setTimeout(() => {
+    const colorMap = (typeof _makeColorMapFromRows === 'function') ? _makeColorMapFromRows(b.rows) : new Map();
+    b.panels.forEach((p, pi) => {
+      const canvas = document.getElementById(`canvas-${b.id}-${pi}`);
+      if (canvas && Array.isArray(p.vis)) drawCanvas(canvas, b.cfg?.lung, b.cfg?.larg, p.vis, b.cfg?.trimX, b.cfg?.trimY, { cuts: p.cuts, colorMap });
+    });
+  }, 30);
+}
+
 function setAnen(bid, rid, val) {
   const b = blocks.find(x=>x.id===bid);
   const r = b?.rows.find(x=>x.id===rid);
   if(!r) return;
   r.anen = val;
-  // sync ag/as_ for ML calculation: 1A = 1 long side, 2A = 2 long sides
-  r.ag = val === '2A' ? 2 : 1;
-  r.as_ = val === '2A' ? 2 : 1;
+  // 1A/2A = how many faces are painted (calcBlock m2sip). It no longer writes the banding counts ag/as_: those are
+  // typed in "Bord Lart." / "Bord Gjer." (until 2026-11 this overwrote them).
   calcBlock(b);
   updateTotals(b);
   updateCalcCells(b, rid);
@@ -10714,6 +10772,10 @@ function renderBlock(b) {
       <input type="number" min="0" step="1" id="price-cut-${b.id}" value="${b.priceCut != null ? b.priceCut : 300}"
         oninput="handleBlockPriceChange(${b.id},'priceCut',this.value)" style="${_priceInStyle}">
     </div>
+    ${(!hasTenie && _isPlainMdf(_materialOfBlock(b)) && !window._currentOrderReadOnly && !(window._editingOrderId != null && isOrderLocked(window._editingOrderId))) ? `<div class="field" style="flex:none;">
+      <label>Bordim</label>
+      <button type="button" class="btn btn-sm" onclick="enableMdfBanding(${b.id})" title="Kjo pjesë u ruajt para rregullit të bordimit për MDF: aktivizoje që të shënosh bordimin (Bord Lart. / Bord Gjer.) dhe ta llogaritësh">+ Aktivizo bordimin</button>
+    </div>` : ''}
     ${hasTenie ? `<div class="field" style="width:150px;flex:none;">
       <label>Bordim (Lek/m)</label>
       <input type="number" min="0" step="1" id="price-board-${b.id}" value="${b.priceBoard != null ? b.priceBoard : 70}"
@@ -13292,6 +13354,7 @@ function _buildImportQueueForGroup(siblingBlocks) {
     const _qPos = (typeof blocks !== 'undefined' && Array.isArray(blocks))
       ? blocks.indexOf(block) + 1 : 0;
     const _qSubLabel = _qPos > 0 ? ('#' + (_qFatura || '—') + '-' + _qPos) : '';
+    const _qBand = blockHasTenie(block);
     for (const r of block.rows) {
       const l = parseFloat(r.l) || 0;
       const g = parseFloat(r.g) || 0;
@@ -13306,9 +13369,9 @@ function _buildImportQueueForGroup(siblingBlocks) {
         subLabel: _qSubLabel,
         // Edge-banding line counts (0/1/2), positional: ag = "Bord Lartësia"
         // (Lartësia/l side) → label field 12, as_ = "Bord Gjerësia"
-        // (Gjerësia/g side) → label field 13.
-        ag:   parseInt(r.ag)  || 0,
-        as_:  parseInt(r.as_) || 0,
+        // (Gjerësia/g side) → label field 13. Only for a banded section.
+        ag:   _qBand ? (parseInt(r.ag)  || 0) : 0,
+        as_:  _qBand ? (parseInt(r.as_) || 0) : 0,
       };
       const k1 = Math.round(l) + 'x' + Math.round(g);
       const k2 = Math.round(g) + 'x' + Math.round(l);
@@ -13334,6 +13397,7 @@ function _buildImportQueueForBlock(block) {
   const _qPos = (typeof blocks !== 'undefined' && Array.isArray(blocks))
     ? blocks.indexOf(block) + 1 : 0;
   const _qSubLabel = _qPos > 0 ? ('#' + (_qFatura || '—') + '-' + _qPos) : '';
+  const _qBand = blockHasTenie(block);
   for (const r of block.rows) {
     const l = parseFloat(r.l) || 0;
     const g = parseFloat(r.g) || 0;
@@ -13351,8 +13415,8 @@ function _buildImportQueueForBlock(block) {
       job:      ((r._importJob        || '') + '').trim(),
       subLabel: _qSubLabel,
       // Edge-banding line counts (positional) — see _buildImportQueueForGroup.
-      ag:   parseInt(r.ag)  || 0,
-      as_:  parseInt(r.as_) || 0,
+      ag:   _qBand ? (parseInt(r.ag)  || 0) : 0,
+      as_:  _qBand ? (parseInt(r.as_) || 0) : 0,
     };
     const k1 = Math.round(l) + 'x' + Math.round(g);
     const k2 = Math.round(g) + 'x' + Math.round(l);
@@ -17287,9 +17351,10 @@ window._wfFirestoreUnsub = null;   // Phase 2 onSnapshot unsubscribe handle
 function wfApplicableStages(block) {
   if (!block) return { saw: false, board: false, cnc: false, paint: false };
   const rows = block.rows || [];
+  const _plainMdf = _isPlainMdf(_materialOfBlock(block));
   return {
     saw:   true,
-    board: !!blockHasTenie(block),
+    board: !!blockHasTenie(block) && (!_plainMdf || _blockBandsSomething(block)),
     cnc:   rows.some(r => r && r.frezim === true),
     paint: blockHasM2(block) && rows.some(r => r && r.lyerje !== false),
   };
@@ -17354,6 +17419,9 @@ function wfStageStatus(block, stage) {
   const applicable = wfApplicableStages(block);
   if (!applicable[stage]) return 'na';
   wfEnsureBlockWorkflow(block);
+  // A finished stage stays finished, even when an earlier stage becomes applicable later
+  // (e.g. banding typed on an MDF section whose CNC is already done).
+  if (block.workflow[stage].status === 'done') return 'done';
   // Locked if any previous applicable stage isn't done.
   const idx = WF_STAGES.indexOf(stage);
   for (let i = 0; i < idx; i++) {
@@ -20968,7 +21036,8 @@ function _pdfImportConfirm() {
     // individual rows in the UI afterwards. Only set the values on blocks
     // whose material actually has tenije; for the rest these fields are
     // ignored by calcBlock anyway, so it's harmless to leave them blank.
-    const blockHasTen = (typeof blockHasTenie === 'function') ? blockHasTenie(block) : false;
+    // Plain MDF (usually painted fronts) starts without banding: the operator types it where needed.
+    const blockHasTen = ((typeof blockHasTenie === 'function') ? blockHasTenie(block) : false) && !_isPlainMdf(_materialOfBlock(block));
     // Stamp the PDF job title onto the BLOCK itself (not just each row).
     // Block-level underscore fields survive save/reload (only `_optTimer`
     // is stripped from blocks), so this stays valid across sessions and is
