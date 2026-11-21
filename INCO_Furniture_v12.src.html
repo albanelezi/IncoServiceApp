@@ -1468,6 +1468,8 @@ tr.dopjim-row:hover {
 .panel-card.pc-noprice { border-color: #f59e0b; border-style: dashed; }
 .panel-card.pc-noprice .panel-canvas-wrap { opacity: .45; }
 .panel-card.pc-noprice .panel-noprice-lbl { color: #b45309; background: #fffbeb; }
+.panel-card.pc-fill { border-color: #10b981; border-style: dashed; }
+.panel-card.pc-fill .panel-fill-lbl { color: #047857; background: #ecfdf5; }
 .eff-badge {
   font-family: 'DM Mono', monospace;
   font-size: 10.5px;
@@ -4242,7 +4244,7 @@ function fullFingerprint(order) {
     pricePaint: b.pricePaint || 0,
     // Per-panel "exclude from price" flags (warehouse remnant boards) — an
     // unsaved change the operator shouldn't lose. Not structural.
-    xp: (b.panels || []).map(p => (p && p.noPrice) ? 1 : 0).join(''),
+    xp: (b.panels || []).map(p => (p && p.fillRemnant) ? 2 : (p && p.noPrice) ? 1 : 0).join(''),
     rows: (b.rows || []).map(r => ({
       l: r.l, g: r.g, s: r.s,
       ag: r.ag || 0, as_: r.as_ || 0,
@@ -5594,7 +5596,8 @@ function _bilancOrderPayload(order) {
     const fmt = getFormatById(b.formatId) || {};
     const panels = Array.isArray(b.panels) ? b.panels : [];
     const tenie = blockHasTenie(b) ? getTenieById(b.tenieId) : null;
-    const billed = panels.filter(p => p && !p.noPrice).length;
+    const _pb = _panelBilling(b);
+    const billed = _pb.full;
     const primary = primaryOf.get(groupKey(b)) === b.id;
     const frezim = {};
     if (blockHasFrezim(b)) for (const r of b.rows) {
@@ -5608,7 +5611,9 @@ function _bilancOrderPayload(order) {
       material: { description: mat.description || '', type: mat.type || '' },
       format: { lung: Number(fmt.lung || b.cfg.lung) || 0, larg: Number(fmt.larg || b.cfg.larg) || 0, thickness: Number(fmt.thickness || b.cfg.spes) || 0 },
       boards: primary ? billed : 0, boardPrice: parseFloat(b.priceP) || 0,
-      cutQty: primary ? billed : 0, cutPrice: parseFloat(b.priceCut) || 0,
+      // "Plotëso me mbetje": the pieces' m² of the filled panels and the board's m² (Bilanc bills fillM2 at price ÷ boardM2)
+      fillM2: primary ? _pb.fillM2 : 0, fillPanels: primary ? _pb.fillPanels : 0, boardM2: _pb.boardM2,
+      cutQty: primary ? _pb.cut : 0, cutPrice: parseFloat(b.priceCut) || 0,
       bandMl: blockHasTenie(b) ? r3(b.totML) : 0, bandPrice: parseFloat(b.priceBoard) || 0,
       paintM2: blockHasM2(b) ? r3((b.totM2sip || 0) + (b.totM2ans || 0)) : 0, paintPrice: parseFloat(b.pricePaint) || 0,
       frezim: Object.keys(frezim).map(p => ({ price: Number(p), qty: frezim[p] })).filter(f => f.qty > 0),
@@ -6360,6 +6365,7 @@ async function openOrder(id, opts) {
   // Restore state
   blocks = order.blocks ? JSON.parse(JSON.stringify(order.blocks)) : [];
   blockIdCtr = order.blockIdCtr || 0;
+  const _mdfKept = [];   // old plain-MDF sections that keep PDF / typed banding after the switch (told to the user)
   // Restore row/block counters
   blocks.forEach(b => {
     if(!b.rowIdCtr) b.rowIdCtr = b.rows.length;
@@ -6456,7 +6462,13 @@ async function openOrder(id, opts) {
       if(r.parentRowId === undefined) r.parentRowId = null;
       if(r.side === undefined)        r.side        = null;
     });
+    // Banding for every material except fibre: an old plain-MDF section switches over here, before the totals and the
+    // fingerprints are taken, so just opening the order is no change and nothing is asked to be saved.
+    if (b.mdfBanding === false || (_isPlainMdf(_materialOfBlock(b)) && b.mdfBanding !== true)) {
+      if (_convertLegacyMdfBlock(b) > 0) _mdfKept.push(b.name || ('#' + b.id));
+    }
   });
+  if (_mdfKept.length) setTimeout(() => _bilancToast(`Bordimi tani vlen edhe për MDF: seksioni ${_mdfKept.join(', ')} ka bordim nga PDF (Bord Lart. / Bord Gjer.). Kontrollo dhe ruaj porosinë — do të faturohet.`, '', 12000), 600);
   // Re-uniquify block names after migration.  syncBlockFromMaterialFormat
   // (called per-block above) overwrites b.name to the base form, so any
   // " (2)" / " (3)" suffix the saved order persisted is gone by here.
@@ -9121,13 +9133,13 @@ function changeBlockFormat(bid, materialId, formatId) {
   // Duplicates allowed: if another block already uses this material+format,
   // the auto-suffix pass below appends " (2)", " (3)", … so the two coexist
   // with distinguishable names (used in WinCut filenames + workflow cards).
-  // an old plain-MDF section (no flag) stays on the old rule through a change of format; any other section is
-  // marked as following the 2026-11 rule
-  const wasLegacyMdf = b.mdfBanding === false || (_isPlainMdf(_materialOfBlock(b)) && b.mdfBanding !== true);
+  // banding for every material except fibre: an old plain-MDF section not yet converted (its numbers are no banding)
+  // converts first, then the section follows the rule whatever its new material
+  if (b.mdfBanding === false || (_isPlainMdf(_materialOfBlock(b)) && b.mdfBanding !== true)) { _convertLegacyMdfBlock(b); calcBlock(b); }
   b.materialId = materialId;
   b.formatId   = formatId;
   syncBlockFromMaterialFormat(b);
-  b.mdfBanding = !wasLegacyMdf;
+  b.mdfBanding = true;
   // Re-uniquify name: syncBlockFromMaterialFormat just set the base name; if
   // another block already has it, bump our suffix.  Done by temporarily
   // removing `b` from the dedup pool so _uniqueBlockName sees the rest.
@@ -10129,23 +10141,32 @@ function refreshBlockAfterDimChange(b) {
   markBlockDirty(b);
 }
 
-// Switch an old plain-MDF section (saved before the 2026-11 rule) to banding. Its stored banding counts were never typed
-// (the old 1A/2A button wrote them), so they start empty; the operator enters the real banding.
-function enableMdfBanding(bid) {
-  const b = blocks.find(x => x.id === bid);
-  if (!b || b.mdfBanding === true) return;
-  if (window._editingOrderId != null && isOrderLocked(window._editingOrderId)) { shellToast('Porosia është dorëzuar — bllokuar', 'err'); return; }
-  // the old 1A/2A button wrote numbers equal to the painted faces (1A → 1/1, 2A → 2/2); PDF-imported counts are kept
-  const _fromAnen = r => typeof r.ag === 'number' && typeof r.as_ === 'number' && r.ag === r.as_ && r.ag === (r.anen === '2A' ? 2 : 1);
-  let _kept = 0;
-  b.rows.forEach(r => {
-    if (r.fromDopjim) { r.ag = '0'; r.as_ = '0'; return; }   // doubler copies never carry their own banding
-    if (_fromAnen(r)) { r.ag = ''; r.as_ = ''; return; }
-    if ((parseInt(r.ag) || 0) > 0 || (parseInt(r.as_) || 0) > 0) _kept++;
+// Banding applies to every material except fibre (2026-11-21). An old plain-MDF section (saved before that, no
+// mdfBanding flag, or flagged false by the first build of the rule) switches over: the numbers the old 1A/2A buttons
+// wrote into the banding counts (1/1 or 2/2 as NUMBERS; typed and PDF counts are strings) were never banding, so they
+// are cleared, and the doubler copies get 0. Banding counts from a PDF import or typed by hand are KEPT (they are
+// banding the shop meant) and the caller tells the user. Only the banding counts change: sizes, quantities and the
+// cutting plan stay as they are. Returns how many rows kept a count.
+function _convertLegacyMdfBlock(b) {
+  const fromAnen = r => typeof r.ag === 'number' && typeof r.as_ === 'number' && r.ag === r.as_ && (r.ag === 1 || r.ag === 2);
+  let kept = 0;
+  (b.rows || []).forEach(r => {
+    if (r.fromDopjim) { r.ag = '0'; r.as_ = '0'; return; }
+    if (fromAnen(r)) { r.ag = ''; r.as_ = ''; return; }
+    if ((parseInt(r.ag) || 0) > 0 || (parseInt(r.as_) || 0) > 0) kept++;
   });
   b.mdfBanding = true;
   if (!b.tenieId) { const t = getAllTenies(); b.tenieId = t[0] ? t[0].id : null; }
   if (b.priceBoard == null || b.priceBoard === '') b.priceBoard = 70;
+  return kept;
+}
+
+// Fallback button for a section that reached the screen without the conversion (openOrder converts every one).
+function enableMdfBanding(bid) {
+  const b = blocks.find(x => x.id === bid);
+  if (!b || b.mdfBanding === true) return;
+  if (window._editingOrderId != null && isOrderLocked(window._editingOrderId)) { shellToast('Porosia është dorëzuar — bllokuar', 'err'); return; }
+  const _kept = _convertLegacyMdfBlock(b);
   calcBlock(b);
   const blockEl = document.getElementById(`block-${bid}`);
   if (blockEl) {
@@ -10159,7 +10180,7 @@ function enableMdfBanding(bid) {
   if (typeof refreshStaleWarning === 'function') refreshStaleWarning(b);
   updateBlockPrice(b);
   updateGrandTotal();
-  shellToast('Bordimi u aktivizua: shëno anët e bordura te "Bord Lart." / "Bord Gjer." dhe ruaj porosinë' + (_kept ? ` (u mbajtën bordimet e ${_kept} rreshtave të importuar nga PDF)` : ''), 'ok');
+  shellToast('Bordimi u aktivizua: shëno anët e bordura te "Bord Lart." / "Bord Gjer." dhe ruaj porosinë' + (_kept ? ` (u mbajtën bordimet e ${_kept} rreshtave)` : ''), 'ok');
 }
 
 // Redraw a section's cutting-plan canvases after its block was re-rendered (same as toggleBlock does).
@@ -10408,6 +10429,36 @@ function fmtALL(n) {
   return Number(Math.round(n)).toLocaleString('sq-AL');
 }
 
+// "Plotëso me mbetje": a panel completed with our own remnants is not billed as a whole board; the client pays the
+// m² of its pieces at the board's price per m² (board price ÷ board m²). Old "Pa çmim" panels (p.noPrice, before
+// 2026-11-21) stay free of board and cut. A filled panel is still cut (cut / banding / paint / milling unchanged).
+function _panelPiecesM2(p, b) {
+  if (!p) return 0;
+  const area = list => list.reduce((a, v) => a + (Number(v && v.w) || 0) * (Number(v && v.h) || 0), 0) / 1e6;
+  // a panel the manual editor split into two saw programs keeps only half A in p.vis: count both halves
+  if (p._splitInfo && Array.isArray(p._splitInfo.parts) && p._splitInfo.parts.length === 2 && p._splitInfo.parts.every(x => x && Array.isArray(x.pieces)))
+    return area(p._splitInfo.parts[0].pieces) + area(p._splitInfo.parts[1].pieces);
+  if (Array.isArray(p.vis) && p.vis.length) return p.vis.reduce((a, v) => a + (Number(v && v.w) || 0) * (Number(v && v.h) || 0), 0) / 1e6;
+  return (Number(p.eff) || 0) / 100 * _boardM2(b);   // no placements stored: the panel's efficiency
+}
+function _boardM2(b) {
+  const f = (typeof getFormatById === 'function' && getFormatById(b.formatId)) || {};
+  return ((Number(f.lung) || Number(b.cfg && b.cfg.lung) || 0) * (Number(f.larg) || Number(b.cfg && b.cfg.larg) || 0)) / 1e6;
+}
+// Board figures of a section's panels: full boards billed, panels cut, filled panels and their pieces' m².
+function _panelBilling(b) {
+  const ps = Array.isArray(b.panels) ? b.panels.filter(Boolean) : [];
+  const fill = ps.filter(p => p.fillRemnant);
+  return {
+    full: ps.filter(p => !p.noPrice && !p.fillRemnant).length,
+    cut: ps.filter(p => !p.noPrice || p.fillRemnant).length,
+    fillPanels: fill.length,
+    fillM2: Math.round(fill.reduce((a, p) => a + _panelPiecesM2(p, b), 0) * 1000) / 1000,
+    boardM2: Math.round(_boardM2(b) * 1000) / 1000,
+    free: ps.filter(p => p.noPrice && !p.fillRemnant).length,
+  };
+}
+
 function calcBlockPrice(b) {
   // Per-section pricing: every price comes straight off the block (entered in
   // the material section's price inputs). Nothing is read from Konfigurim, and
@@ -10427,14 +10478,15 @@ function calcBlockPrice(b) {
   // price is mirrored across siblings (handleBlockPriceChange), so the primary
   // carries the group's agreed board price.
   const nPanels  = b.panels ? b.panels.length : 0;
-  // Panels flagged noPrice (operator used a warehouse remnant board) are
-  // excluded from the BOARD and CUT charges only. Boarding / painting /
-  // frezim are per-piece and stay billed in full.
-  const nBilled  = b.panels ? b.panels.filter(p => p && !p.noPrice).length : 0;
+  // Panels "Plotëso me mbetje": the board is billed by the m² of its pieces (board price ÷ board m²), the cut as
+  // usual. Old "Pa çmim" panels: neither board nor cut. Boarding / painting / frezim are per-piece, billed in full.
+  const _pb = _panelBilling(b);
+  const nBilled  = _pb.full;
   const _sibs = (typeof _siblingBlocks === 'function') ? _siblingBlocks(b) : [b];
   const _isPrimary = _sibs.length === 0 || _sibs[0].id === b.id;
-  const pPanels  = _isPrimary ? nBilled * panelPrice : 0;
-  const pCut     = _isPrimary ? nBilled * cutPrice   : 0;
+  const pFill    = (_isPrimary && _pb.boardM2 > 0) ? _pb.fillM2 / _pb.boardM2 * panelPrice : 0;
+  const pPanels  = _isPrimary ? nBilled * panelPrice + pFill : 0;
+  const pCut     = _isPrimary ? _pb.cut * cutPrice   : 0;
   // Boarding (Bordim): one flat rate × total edge-band meters (all tiers
   // combined into b.totML).  Charged per section (each section owns its ml).
   const pBoard   = blockHasTenie(b) ? (b.totML||0) * boardRate : 0;
@@ -10476,7 +10528,10 @@ function updateBlockPrice(b) {
   // Update panel count label on the price strip: "Pllaka (N)" normally, or
   // "Pllaka (billed/total)" when some panels are excluded from the price.
   const panelLbl = s(`bprice-panels-lbl-${b.id}`);
-  if(panelLbl) panelLbl.textContent = (bp.nBilled !== nPanels)
+  const _pbl = _panelBilling(b);
+  if(panelLbl) panelLbl.textContent = _pbl.fillPanels > 0
+    ? `Pllaka (${_pbl.full} + ${String(_pbl.fillM2).replace('.', ',')} m²)`
+    : (bp.nBilled !== nPanels)
     ? `Pllaka (${bp.nBilled}/${nPanels})`
     : `Pllaka (${nPanels})`;
 
@@ -10615,10 +10670,46 @@ function togglePanelNoPrice(bid, pi, checked) {
     updateBlockPrice(s);
     if(s.id !== bid) {
       const sc = document.getElementById(`panel-card-${s.id}-${pi}`);
-      if(sc) { sc.classList.toggle('pc-noprice', !!checked); const cb = sc.querySelector('.panel-noprice-lbl input'); if(cb) cb.checked = !!checked; }
+      if(sc) { sc.classList.toggle('pc-noprice', !!checked); const cb = sc.querySelector('.panel-oldnp-lbl input'); if(cb) cb.checked = !!checked; }
     }
   }
   updateGrandTotal();
+}
+
+// "Plotëso me mbetje" on a panel card: the panel is completed with our remnants, billed by the m² of its pieces.
+// Lives on the panel (shared by the sibling sections), saved with the order. Ticking it clears the old "Pa çmim".
+function togglePanelFill(bid, pi, checked) {
+  const b = blocks.find(x => x.id === bid);
+  if (!b || !Array.isArray(b.panels) || !b.panels[pi]) return;
+  if (window._editingOrderId != null && isOrderLocked(window._editingOrderId)) { shellToast('Porosia është dorëzuar — bllokuar', 'err'); renderOptPanelRefresh(b); return; }
+  const p = b.panels[pi];
+  p.fillRemnant = !!checked;
+  if (checked) p.noPrice = false;
+  const sibs = (typeof _siblingBlocks === 'function') ? _siblingBlocks(b) : [b];
+  for (const sb of (sibs && sibs.length ? sibs : [b])) {
+    const card = document.getElementById(`panel-card-${sb.id}-${pi}`);
+    if (card) {
+      card.classList.toggle('pc-fill', !!checked);
+      card.classList.toggle('pc-noprice', !!p.noPrice);
+      const cb = card.querySelector('.panel-fill-lbl input'); if (cb) cb.checked = !!checked;
+      const old = card.querySelector('.panel-oldnp-lbl'); if (old && !p.noPrice) old.remove();
+      const info = card.querySelector('.panel-fill-info'); if (info) info.textContent = checked ? _panelFillInfo(sb, p) : '';
+    }
+    updateBlockPrice(sb);
+  }
+  updateGrandTotal();
+}
+function _panelFillInfo(b, p) {
+  const m2 = _panelPiecesM2(p, b), bm2 = _boardM2(b);
+  return bm2 > 0 ? `${m2.toFixed(3).replace('.', ',')} m² nga ${bm2.toFixed(3).replace('.', ',')} m²` : '';
+}
+// Re-render a section's panel cards (used to undo a click on a locked order).
+function renderOptPanelRefresh(b) {
+  const el = document.getElementById(`block-${b.id}`);
+  if (!el) return;
+  const tmp = document.createElement('div'); tmp.innerHTML = renderBlock(b);
+  el.replaceWith(tmp.firstElementChild);
+  if (typeof _redrawBlockCanvases === 'function') _redrawBlockCanvases(b);
 }
 
 // Live-edit handler for the per-section price inputs. Writes the value onto the
@@ -11113,8 +11204,9 @@ function renderOptPanelInner(b) {
 
   const panelsHtml = b.panels.map((p,pi)=>{
     const effClass = p.eff>=60 ? 'eff-good' : 'eff-warn';
-    const noPrice = !!p.noPrice;
-    return `<div class="panel-card${noPrice ? ' pc-noprice' : ''}" id="panel-card-${b.id}-${pi}" style="cursor:pointer" onclick="openPanelZoom(${b.id},${pi})" title="Kliko për ta zmadhuar">
+    const fill = !!p.fillRemnant;
+    const noPrice = !!p.noPrice && !fill;
+    return `<div class="panel-card${noPrice ? ' pc-noprice' : ''}${fill ? ' pc-fill' : ''}" id="panel-card-${b.id}-${pi}" style="cursor:pointer" onclick="openPanelZoom(${b.id},${pi})" title="Kliko për ta zmadhuar">
       <div class="panel-card-hdr">
         <div class="panel-card-title">Panel ${String(pi+1).padStart(2,'0')} — CUTLST0${pi}</div>
         <div class="eff-badge ${effClass}" style="display:flex;align-items:center;gap:6px">
@@ -11124,10 +11216,15 @@ function renderOptPanelInner(b) {
         </div>
       </div>
       <div class="panel-canvas-wrap"><canvas id="canvas-${b.id}-${pi}"></canvas></div>
-      <label class="panel-noprice-lbl" onclick="event.stopPropagation();" title="Shëno nëse kjo pllakë vjen nga magazina (mbetje e një porosie tjetër): nuk faturohet çmimi i pllakës dhe i prerjes. Bordimi / lyerja / frezimi i copëve faturohen normalisht.">
-        <input type="checkbox" ${noPrice ? 'checked' : ''} onclick="event.stopPropagation();" onchange="togglePanelNoPrice(${b.id},${pi},this.checked)">
-        <span>Pa çmim (nga magazina)</span>
+      <label class="panel-noprice-lbl panel-fill-lbl" onclick="event.stopPropagation();" title="Shëno nëse copat e kësaj pllake i plotësojmë me mbetjet tona: pllaka nuk faturohet e plotë, por sipas m² të copave (m² e copave ÷ m² e pllakës × çmimi i pllakës), si rresht 'Shtesë pllake' në faturën e pllakave. Prerja, bordimi, lyerja dhe frezimi nuk ndryshojnë.">
+        <input type="checkbox" ${fill ? 'checked' : ''} ${window._currentOrderReadOnly ? 'disabled' : ''} onclick="event.stopPropagation();" onchange="togglePanelFill(${b.id},${pi},this.checked)">
+        <span>Plotëso me mbetje</span>
+        <span class="panel-fill-info" style="margin-left:auto;font-weight:600;">${fill ? _panelFillInfo(b, p) : ''}</span>
       </label>
+      ${noPrice ? `<label class="panel-noprice-lbl panel-oldnp-lbl" onclick="event.stopPropagation();" title="Shënim i vjetër (para 21.11.2026): kjo pllakë nuk faturohet (as pllaka, as prerja). Hiqe për ta faturuar si zakonisht.">
+        <input type="checkbox" checked ${window._currentOrderReadOnly ? 'disabled' : ''} onclick="event.stopPropagation();" onchange="togglePanelNoPrice(${b.id},${pi},this.checked)">
+        <span>Pa çmim (shënim i vjetër)</span>
+      </label>` : ''}
     </div>`;
   }).join('');
 
@@ -16630,11 +16727,10 @@ function buildInvoicePDF(klienti, fatura, data) {
     const cutPrice   = parseFloat(b.priceCut)   || 0;
     const boardRate  = parseFloat(b.priceBoard) || 0;
     const paintPrice = parseFloat(b.pricePaint) || 0;
-    // Only panels NOT flagged noPrice (warehouse remnants) are billed for the
-    // board + cut lines — mirrors calcBlockPrice's nBilled.
-    const panelsAll  = Array.isArray(b.panels) ? b.panels : [];
-    const panelCount = panelsAll.filter(p => p && !p.noPrice).length;
-    const nExcluded  = panelsAll.length - panelCount;
+    // Full boards, the filled panels by the m² of their pieces, the old "Pa çmim" panels at 0 — mirrors calcBlockPrice.
+    const _pb        = _panelBilling(b);
+    const panelCount = _pb.full;
+    const nExcluded  = _pb.free;
 
     // Each displayed line total is rounded to whole Lek; the grand total sums
     // those rounded values so the invoice always adds up exactly on paper.
@@ -16645,13 +16741,19 @@ function buildInvoicePDF(klienti, fatura, data) {
       invRows.push([`Pllaka materiali — ${b.name}`, panelCount, 'pllakë', fmt(panelPrice), fmt(panelTotal)]);
       // Boards taken from warehouse stock: shown as their own zero-value line
       // so the customer sees they were used but not charged (board or cut).
+      if(_pb.fillM2 > 0 && _pb.boardM2 > 0){
+        const m2Price = panelPrice / _pb.boardM2;
+        const fillTotal = _pb.fillM2 * m2Price;
+        grandTotal += Math.round(fillTotal);
+        invRows.push([`Shtesë pllake (mbetje) — ${b.name}`, _pb.fillM2.toFixed(3).replace('.', ','), 'm²', (Math.round(m2Price * 100) / 100).toFixed(2).replace('.', ','), fmt(fillTotal)]);
+      }
       if(nExcluded > 0){
         invRows.push([`Pllaka nga magazina — pa çmim`, nExcluded, 'pllakë', '—', fmt(0)]);
       }
 
-      const cutTotal = panelCount * cutPrice;
+      const cutTotal = _pb.cut * cutPrice;
       grandTotal += Math.round(cutTotal);
-      invRows.push([`Prerja — ${b.name}`, panelCount, 'panel', fmt(cutPrice), fmt(cutTotal)]);
+      invRows.push([`Prerja — ${b.name}`, _pb.cut, 'panel', fmt(cutPrice), fmt(cutTotal)]);
     }
 
     // Line 3: boarding (Bordim) — one flat rate × total edge-band meters.
