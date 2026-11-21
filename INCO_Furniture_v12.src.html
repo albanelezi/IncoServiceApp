@@ -10445,6 +10445,10 @@ function _boardM2(b) {
   const f = (typeof getFormatById === 'function' && getFormatById(b.formatId)) || {};
   return ((Number(f.lung) || Number(b.cfg && b.cfg.lung) || 0) * (Number(f.larg) || Number(b.cfg && b.cfg.larg) || 0)) / 1e6;
 }
+// The share of a board that pieces of m2 take (3 decimals, at least 0.001), billed at the board price — same as Bilanc.
+function _fillShare(m2, boardM2) {
+  return (m2 > 0 && boardM2 > 0) ? Math.max(0.001, Math.round(m2 / boardM2 * 1000) / 1000) : 0;
+}
 // Board figures of a section's panels: full boards billed, panels cut, filled panels and their pieces' m².
 function _panelBilling(b) {
   const ps = Array.isArray(b.panels) ? b.panels.filter(Boolean) : [];
@@ -10455,6 +10459,7 @@ function _panelBilling(b) {
     fillPanels: fill.length,
     fillM2: Math.round(fill.reduce((a, p) => a + _panelPiecesM2(p, b), 0) * 1000) / 1000,
     boardM2: Math.round(_boardM2(b) * 1000) / 1000,
+    get fillShare() { return _fillShare(this.fillM2, this.boardM2); },   // share of a board, as Bilanc bills it
     free: ps.filter(p => p.noPrice && !p.fillRemnant).length,
   };
 }
@@ -10484,7 +10489,7 @@ function calcBlockPrice(b) {
   const nBilled  = _pb.full;
   const _sibs = (typeof _siblingBlocks === 'function') ? _siblingBlocks(b) : [b];
   const _isPrimary = _sibs.length === 0 || _sibs[0].id === b.id;
-  const pFill    = (_isPrimary && _pb.boardM2 > 0) ? _pb.fillM2 / _pb.boardM2 * panelPrice : 0;
+  const pFill    = _isPrimary ? _pb.fillShare * panelPrice : 0;
   const pPanels  = _isPrimary ? nBilled * panelPrice + pFill : 0;
   const pCut     = _isPrimary ? _pb.cut * cutPrice   : 0;
   // Boarding (Bordim): one flat rate × total edge-band meters (all tiers
@@ -10530,7 +10535,7 @@ function updateBlockPrice(b) {
   const panelLbl = s(`bprice-panels-lbl-${b.id}`);
   const _pbl = _panelBilling(b);
   if(panelLbl) panelLbl.textContent = _pbl.fillPanels > 0
-    ? `Pllaka (${_pbl.full} + ${String(_pbl.fillM2).replace('.', ',')} m²)`
+    ? `Pllaka (${_pbl.full} + ${String(_pbl.fillShare).replace('.', ',')})`
     : (bp.nBilled !== nPanels)
     ? `Pllaka (${bp.nBilled}/${nPanels})`
     : `Pllaka (${nPanels})`;
@@ -10701,7 +10706,8 @@ function togglePanelFill(bid, pi, checked) {
 }
 function _panelFillInfo(b, p) {
   const m2 = _panelPiecesM2(p, b), bm2 = _boardM2(b);
-  return bm2 > 0 ? `${m2.toFixed(3).replace('.', ',')} m² nga ${bm2.toFixed(3).replace('.', ',')} m²` : '';
+  const sh = _fillShare(m2, bm2);
+  return sh > 0 ? `${String(sh).replace('.', ',')} e pllakës` : '';
 }
 // Re-render a section's panel cards (used to undo a click on a locked order).
 function renderOptPanelRefresh(b) {
@@ -11216,7 +11222,7 @@ function renderOptPanelInner(b) {
         </div>
       </div>
       <div class="panel-canvas-wrap"><canvas id="canvas-${b.id}-${pi}"></canvas></div>
-      <label class="panel-noprice-lbl panel-fill-lbl" onclick="event.stopPropagation();" title="Shëno nëse copat e kësaj pllake i plotësojmë me mbetjet tona: pllaka nuk faturohet e plotë, por sipas m² të copave (m² e copave ÷ m² e pllakës × çmimi i pllakës), si rresht 'Shtesë pllake' në faturën e pllakave. Prerja, bordimi, lyerja dhe frezimi nuk ndryshojnë.">
+      <label class="panel-noprice-lbl panel-fill-lbl" onclick="event.stopPropagation();" title="Shëno nëse copat e kësaj pllake i plotësojmë me mbetjet tona: pllaka nuk faturohet e plotë, por pjesa e pllakës që zënë copat (p.sh. 0,068 e pllakës) me çmimin e pllakës, si rresht 'Shtesë pllake' në faturën e pllakave. Prerja, bordimi, lyerja dhe frezimi nuk ndryshojnë.">
         <input type="checkbox" ${fill ? 'checked' : ''} ${window._currentOrderReadOnly ? 'disabled' : ''} onclick="event.stopPropagation();" onchange="togglePanelFill(${b.id},${pi},this.checked)">
         <span>Plotëso me mbetje</span>
         <span class="panel-fill-info" style="margin-left:auto;font-weight:600;">${fill ? _panelFillInfo(b, p) : ''}</span>
@@ -16741,11 +16747,10 @@ function buildInvoicePDF(klienti, fatura, data) {
       invRows.push([`Pllaka materiali — ${b.name}`, panelCount, 'pllakë', fmt(panelPrice), fmt(panelTotal)]);
       // Boards taken from warehouse stock: shown as their own zero-value line
       // so the customer sees they were used but not charged (board or cut).
-      if(_pb.fillM2 > 0 && _pb.boardM2 > 0){
-        const m2Price = panelPrice / _pb.boardM2;
-        const fillTotal = _pb.fillM2 * m2Price;
+      if(_pb.fillShare > 0){
+        const fillTotal = _pb.fillShare * panelPrice;
         grandTotal += Math.round(fillTotal);
-        invRows.push([`Shtesë pllake (mbetje) — ${b.name}`, _pb.fillM2.toFixed(3).replace('.', ','), 'm²', (Math.round(m2Price * 100) / 100).toFixed(2).replace('.', ','), fmt(fillTotal)]);
+        invRows.push([`Shtesë pllake (mbetje) — ${b.name}`, String(_pb.fillShare).replace('.', ','), 'pllakë', fmt(panelPrice), fmt(fillTotal)]);
       }
       if(nExcluded > 0){
         invRows.push([`Pllaka nga magazina — pa çmim`, nExcluded, 'pllakë', '—', fmt(0)]);
