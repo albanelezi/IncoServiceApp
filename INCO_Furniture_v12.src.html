@@ -4229,6 +4229,7 @@ function fullFingerprint(order) {
     dimAdd:  b.dimAdd  || 0,
     cutDir:  b.cutDir  || 'auto',
     mdfBanding: b.mdfBanding === true,
+    paintable: b.paintable === true,
     kodiBojes: b.kodiBojes || '',
     // "Printo Etiketat" toggle in the block header — a setting change here
     // must count as an edit so the operator can't accidentally lose the
@@ -6467,6 +6468,8 @@ async function openOrder(id, opts) {
     if (b.mdfBanding === false || (_isPlainMdf(_materialOfBlock(b)) && b.mdfBanding !== true)) {
       if (_convertLegacyMdfBlock(b) > 0) _mdfKept.push(b.name || ('#' + b.id));
     }
+    // painting for melamine / fibre melamine (2026-11-22): an older section switches over with painting unticked
+    if (_paintIsNew(_materialOfBlock(b)) && b.paintable !== true) _convertLegacyPaintBlock(b);
   });
   if (_mdfKept.length) setTimeout(() => _bilancToast(`Bordimi tani vlen edhe për MDF: seksioni ${_mdfKept.join(', ')} ka bordim nga PDF (Bord Lart. / Bord Gjer.). Kontrollo dhe ruaj porosinë — do të faturohet.`, '', 12000), 600);
   // Re-uniquify block names after migration.  syncBlockFromMaterialFormat
@@ -7045,13 +7048,15 @@ const PANEL_TYPE_DISPLAY = {
 // Returns: hasTenie, hasM2 (lyerje), hasFrezim, name, cssClass.
 // BANDING RULE (2026-11): every material is edge-banded (bordim) except fiber; plain MDF too, but only in sections
 // created after the rule (see blockHasTenie: older plain-MDF sections keep the old rule).
-// FIBER RULE: never has tenie, never has frezim — only paint (lyerje).
+// PAINT + FREZIM RULE (2026-11-22): every material can be painted and milled; every material is banded except fibre.
+// Melamine, betoforme and fibre melamine became paintable that day: see blockHasM2 (their older sections keep the old
+// rule until opened).
 function getMaterialBehavior(material) {
   if(!material) return { hasTenie: false, hasM2: false, hasFrezim: false, name: 'Material', cssClass: 'mel' };
   const t = material.type;
   // frezim (CNC milling) is offered on every material (user, 2026-11-22)
-  if(t === 'melamine')  return { hasTenie: true,  hasM2: false, hasFrezim: true, name: PANEL_TYPE_DISPLAY.melamine.name,  cssClass: 'mel' };
-  if(t === 'betoforme') return { hasTenie: true,  hasM2: false, hasFrezim: true, name: PANEL_TYPE_DISPLAY.betoforme.name, cssClass: 'bet' };
+  if(t === 'melamine')  return { hasTenie: true,  hasM2: true,  hasFrezim: true, name: PANEL_TYPE_DISPLAY.melamine.name,  cssClass: 'mel' };
+  if(t === 'betoforme') return { hasTenie: true,  hasM2: true,  hasFrezim: true, name: PANEL_TYPE_DISPLAY.betoforme.name, cssClass: 'bet' };
   if(t === 'mdf') {
     return {
       hasTenie:  true,
@@ -7063,7 +7068,7 @@ function getMaterialBehavior(material) {
   }
   if(t === 'fiber') {
     const sub = material.subType || 'mdf';
-    if(sub === 'melamine')      return { hasTenie: false, hasM2: false, hasFrezim: true, name: 'Fiber (Melamine)',     cssClass: 'mel' };
+    if(sub === 'melamine')      return { hasTenie: false, hasM2: true,  hasFrezim: true, name: 'Fiber (Melamine)',     cssClass: 'mel' };
     if(sub === 'mdf_me_rimeso') return { hasTenie: false, hasM2: true,  hasFrezim: true, name: 'Fiber (MDF me rimeso)', cssClass: 'lis' };
     return                            { hasTenie: false, hasM2: true,  hasFrezim: true, name: 'Fiber (MDF)',          cssClass: 'mdf' };
   }
@@ -8752,8 +8757,22 @@ function blockHasTenie(b) {
   if (_isPlainMdf(m) && !(b && b.mdfBanding === true)) return false;
   return true;
 }
+// Materials that became paintable on 2026-11-22 (melamine, betoforme, fibre melamine). Their rows were always created
+// with lyerje: true although painting was not possible, so an older section's lyerje means nothing.
+function _paintIsNew(m) {
+  return !!m && (m.type === 'melamine' || m.type === 'betoforme' || (m.type === 'fiber' && (m.subType || 'mdf') === 'melamine'));
+}
 function blockHasM2(b) {
-  return getMaterialBehavior(_materialOfBlock(b)).hasM2;
+  const m = _materialOfBlock(b);
+  if (!getMaterialBehavior(m).hasM2) return false;
+  if (_paintIsNew(m) && !(b && b.paintable === true)) return false;   // older section: the old rule (no painting)
+  return true;
+}
+// An older melamine / betoforme / fibre-melamine section switches to the 2026-11-22 rule: painting starts unticked on every row
+// (the stored ticks were the row default, never a choice). Nothing else changes.
+function _convertLegacyPaintBlock(b) {
+  (b.rows || []).forEach(r => { r.lyerje = false; });
+  b.paintable = true;
 }
 function blockHasFrezim(b) {
   return getMaterialBehavior(_materialOfBlock(b)).hasFrezim;
@@ -8846,6 +8865,7 @@ function addBlock(materialId, formatId) {
     cutDir: 'auto',
     tenieId: defaultTenieId,
     mdfBanding: true,    // created under the 2026-11 rule: plain MDF is banded (see blockHasTenie)
+    paintable: true,     // created under the 2026-11-22 rule: melamine / fibre melamine can be painted (see blockHasM2)
     printLabels: true,   // per-block WinCut-label toggle (see openOrder backfill)
     // Per-section prices (Lek). Entered directly on the material section — see
     // calcBlockPrice / the price-inputs UI in renderBlock. Panel price starts
@@ -9137,10 +9157,12 @@ function changeBlockFormat(bid, materialId, formatId) {
   // banding for every material except fibre: an old plain-MDF section not yet converted (its numbers are no banding)
   // converts first, then the section follows the rule whatever its new material
   if (b.mdfBanding === false || (_isPlainMdf(_materialOfBlock(b)) && b.mdfBanding !== true)) { _convertLegacyMdfBlock(b); calcBlock(b); }
+  if (_paintIsNew(_materialOfBlock(b)) && b.paintable !== true) { _convertLegacyPaintBlock(b); calcBlock(b); }
   b.materialId = materialId;
   b.formatId   = formatId;
   syncBlockFromMaterialFormat(b);
   b.mdfBanding = true;
+  b.paintable  = true;
   // Re-uniquify name: syncBlockFromMaterialFormat just set the base name; if
   // another block already has it, bump our suffix.  Done by temporarily
   // removing `b` from the dedup pool so _uniqueBlockName sees the rest.
@@ -9178,7 +9200,9 @@ function updateAddButtons() {
 }
 
 function makeRow(block) {
-  return { id: block.rowIdCtr++, l:'', g:'', s:'', ag:'', as_:'', anen:'1A', lyerje:true, frezim:false, grainLock:false, groupColor:null, koment:'', fromDopjim:false, parentRowId:null, side:null, doubledSides:{gjate:0,shkurter:0} };
+  // painting is ticked by default on MDF / fibre MDF (usually painted), unticked on melamine / betoforme / fibre melamine
+  const _paintOn = !_paintIsNew(typeof _materialOfBlock === 'function' ? _materialOfBlock(block) : null);
+  return { id: block.rowIdCtr++, l:'', g:'', s:'', ag:'', as_:'', anen:'1A', lyerje:_paintOn, frezim:false, grainLock:false, groupColor:null, koment:'', fromDopjim:false, parentRowId:null, side:null, doubledSides:{gjate:0,shkurter:0} };
 }
 
 function removeBlock(bid) {
@@ -9892,7 +9916,7 @@ function setGroupColor(bid, rid, colorId) {
   }
 }
 
-// Frezim — applies to Lis & MDF rows only. Toggling it doesn't affect cuts
+// Frezim — applies to every material (2026-11-22). Toggling it doesn't affect cuts
 // or M²/ML calculations; it only changes the price (frezim_price * copë).
 function handleFrezim(bid, rid, checked) {
   const b = blocks.find(x=>x.id===bid);
@@ -10251,6 +10275,7 @@ function _rowNeighbour(bid, rid, fields, dir) {
   return null;
 }
 function _isLastRow(bid, rid) {
+  if (window._currentOrderReadOnly || (window._editingOrderId != null && isOrderLocked(window._editingOrderId))) return false;   // no new row on a delivered / view-only order
   const blk = blocks.find(x => x.id === bid);
   return !!blk && blk.rows.length > 0 && blk.rows[blk.rows.length - 1].id === rid;
 }
@@ -10502,7 +10527,7 @@ function calcBlockPrice(b) {
 
   // Frezim (milling): per-ROW price × that row's piece count, summed over rows
   // with frezim checked. Each row carries its own r.frezimPrice (entered next
-  // to the frezim checkbox). Only non-fiber MDF/Lis blocks expose frezim.
+  // to the frezim checkbox). Every material exposes frezim (2026-11-22).
   let pFrezim = 0, nFrezimPieces = 0;
   if(blockHasFrezim(b)) {
     for(const r of b.rows) {
@@ -10578,7 +10603,7 @@ function blockPriceMissing(b) {
   if(num(b.priceP)   <= 0) missing.push('Çmimi i Pllakës');
   if(num(b.priceCut) <= 0) missing.push('Prerja');
   if(blockHasTenie(b) && (b.totML||0) > 0 && num(b.priceBoard) <= 0) missing.push('Bordim');
-  if(blockHasM2(b) && num(b.pricePaint) <= 0) missing.push('Lyerja');
+  if(blockHasM2(b) && ((b.totM2sip||0)+(b.totM2ans||0)) > 0 && num(b.pricePaint) <= 0) missing.push('Lyerja');
   if(blockHasFrezim(b)) {
     for(const r of b.rows) {
       if(r.frezim && num(r.frezimPrice) <= 0) { missing.push('Frezim'); break; }
@@ -10603,7 +10628,7 @@ function applyBlockPriceWarnings(b) {
   warnInput(s(`price-p-${b.id}`),     num(b.priceP)   <= 0);
   warnInput(s(`price-cut-${b.id}`),   num(b.priceCut) <= 0);
   if(blockHasTenie(b)) warnInput(s(`price-board-${b.id}`), (b.totML||0) > 0 && num(b.priceBoard) <= 0);
-  if(blockHasM2(b))    warnInput(s(`price-paint-${b.id}`), num(b.pricePaint) <= 0);
+  if(blockHasM2(b))    warnInput(s(`price-paint-${b.id}`), ((b.totM2sip||0)+(b.totM2ans||0)) > 0 && num(b.pricePaint) <= 0);
   // Frezim row inputs: outline any checked row whose price is still empty.
   if(blockHasFrezim(b)) {
     for(const r of b.rows) {
@@ -16424,7 +16449,7 @@ function drawBlockInfoBox(doc, b, y) {
   const right = [
     ['Total Copë', String(b.totCope || 0)],
   ];
-  if (hasM2) {
+  if (hasM2 && (b.totPaint || 0) > 0) {
     right.push(['M² me lyerje', (b.totPaint || 0).toFixed(2)]);
     right.push(['KG Bojë',      `${(b.kgMbuluese || 0).toFixed(2)} kg`]);
     if (b.kodiBojes && String(b.kodiBojes).trim())
@@ -16571,7 +16596,7 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
     // Narrowed data columns, widened Koment
     let cols, rows, tableOpts = {};
     if(hasTenie && !hasM2){
-      // mel / bet — #, Lartësia, Gjerësia, Copë, Koment
+      // mel / bet (not painted) — #, Lartësia, Gjerësia, Copë, [Frezim,] Koment
       // Tenie lines drawn above dimension values
       const frW0 = 12;
       cols = [
@@ -16630,7 +16655,8 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
       });
       tableOpts = {rowH: 7, drawRowBorders: true};
     } else {
-      // mdf / fiber — #, Lartësia, Gjerësia, Copë, Anët, Lyerje, [Frezim,] Koment (taller rows)
+      // mdf / fiber — #, Lartësia, Gjerësia, Copë, [Anët, Lyerje,] [Frezim,] Koment (taller rows); Anët / Lyerje only
+      // where the section can be painted (an old fibre-melamine section's ticks were the row default, not a choice)
       const lyW2 = 12;
       const frW2 = 12;
       const baseCols = [
@@ -16638,11 +16664,10 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
         {label:'Lartësia',w:20, align:'center'},
         {label:'Gjerësia',w:20, align:'center'},
         {label:'Copë',    w:12, align:'center'},
-        {label:'Anët',    w:14, align:'center'},
-        {label:'Lyerje',  w:lyW2, align:'center'},
+        ...(hasM2 ? [{label:'Anët', w:14, align:'center'}, {label:'Lyerje', w:lyW2, align:'center'}] : []),
       ];
       if(hasFrezim) baseCols.push({label:'Frezim', w:frW2, align:'center'});
-      const usedW2 = 8+20+20+12+14+lyW2 + (hasFrezim?frW2:0);
+      const usedW2 = 8+20+20+12+(hasM2 ? 14+lyW2 : 0) + (hasFrezim?frW2:0);
       baseCols.push({label:'Koment', w:tW-usedW2, align:'left'});
       cols = baseCols;
       rows = b.rows.filter(r=>parseInt(r.s)>0).map((r,i)=>{
@@ -16653,8 +16678,7 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
           {text: r.s||'—'},
           // Anët (sides to paint) is meaningless when the row isn't being
           // painted — show empty there instead of a misleading "1A" badge.
-          r.lyerje === false ? '' : {text: r.anen||'1A', hl: r.anen==='2A'},
-          r.lyerje !== false ? 'X' : '',
+          ...(hasM2 ? [r.lyerje === false ? '' : {text: r.anen||'1A', hl: r.anen==='2A'}, r.lyerje !== false ? 'X' : ''] : []),
         ];
         if(hasFrezim) row.push(r.frezim ? 'X' : '');
         row.push(r.koment||'');
@@ -16782,8 +16806,8 @@ function buildInvoicePDF(klienti, fatura, data) {
       }
     }
 
-    // Line 4: painting (m²)
-    if(hasM2){
+    // Line 4: painting (m²) — only when something is painted (every material can be painted now)
+    if(hasM2 && ((b.totM2sip||0)+(b.totM2ans||0)) > 0){
       const paintM2 = (b.totM2sip||0)+(b.totM2ans||0);
       const paintTotal = paintM2 * paintPrice;
       grandTotal += Math.round(paintTotal);
