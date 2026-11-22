@@ -7049,8 +7049,9 @@ const PANEL_TYPE_DISPLAY = {
 function getMaterialBehavior(material) {
   if(!material) return { hasTenie: false, hasM2: false, hasFrezim: false, name: 'Material', cssClass: 'mel' };
   const t = material.type;
-  if(t === 'melamine')  return { hasTenie: true,  hasM2: false, hasFrezim: false, name: PANEL_TYPE_DISPLAY.melamine.name,  cssClass: 'mel' };
-  if(t === 'betoforme') return { hasTenie: true,  hasM2: false, hasFrezim: false, name: PANEL_TYPE_DISPLAY.betoforme.name, cssClass: 'bet' };
+  // frezim (CNC milling) is offered on every material (user, 2026-11-22)
+  if(t === 'melamine')  return { hasTenie: true,  hasM2: false, hasFrezim: true, name: PANEL_TYPE_DISPLAY.melamine.name,  cssClass: 'mel' };
+  if(t === 'betoforme') return { hasTenie: true,  hasM2: false, hasFrezim: true, name: PANEL_TYPE_DISPLAY.betoforme.name, cssClass: 'bet' };
   if(t === 'mdf') {
     return {
       hasTenie:  true,
@@ -7062,9 +7063,9 @@ function getMaterialBehavior(material) {
   }
   if(t === 'fiber') {
     const sub = material.subType || 'mdf';
-    if(sub === 'melamine')      return { hasTenie: false, hasM2: false, hasFrezim: false, name: 'Fiber (Melamine)',     cssClass: 'mel' };
-    if(sub === 'mdf_me_rimeso') return { hasTenie: false, hasM2: true,  hasFrezim: false, name: 'Fiber (MDF me rimeso)', cssClass: 'lis' };
-    return                            { hasTenie: false, hasM2: true,  hasFrezim: false, name: 'Fiber (MDF)',          cssClass: 'mdf' };
+    if(sub === 'melamine')      return { hasTenie: false, hasM2: false, hasFrezim: true, name: 'Fiber (Melamine)',     cssClass: 'mel' };
+    if(sub === 'mdf_me_rimeso') return { hasTenie: false, hasM2: true,  hasFrezim: true, name: 'Fiber (MDF me rimeso)', cssClass: 'lis' };
+    return                            { hasTenie: false, hasM2: true,  hasFrezim: true, name: 'Fiber (MDF)',          cssClass: 'mdf' };
   }
   return { hasTenie: false, hasM2: false, hasFrezim: false, name: 'Material', cssClass: 'mel' };
 }
@@ -10221,80 +10222,82 @@ function anenKey(e, bid, rid, val) {
   }
 }
 
+// ── Keyboard in the rows (user rules, 2026-11-22) ──────────────────────
+// Grid: Gjatësi, Gjerësi, Copë, Bord Lart., Bord Gjer. — ←/→ along the row, ↑/↓ the same field above / below,
+// Enter left to right; after the last field Enter goes to the first field of the next row (a new row at the end).
+// Anët (1A/2A) is never reached by arrows or Enter. Frezim and Koment are columns: only ↑/↓, and Enter goes to the
+// same field in the next row (Koment: a new row at the end). Space ticks the frezim box.
+const ROW_GRID_FIELDS = ['l', 'g', 's', 'ag', 'as_'];
+function _rowInput(bid, rid, f) {
+  const el = document.querySelector(`input[data-bid="${bid}"][data-rid="${rid}"][data-f="${f}"]`);
+  return el && el.offsetParent !== null ? el : null;   // rendered and visible (a hidden frezim price does not count)
+}
+function _focusRowInput(el) {
+  if (!el) return false;
+  el.focus();
+  if (el.type !== 'checkbox' && typeof el.select === 'function') { try { el.select(); } catch (_) {} }
+  try { el.scrollIntoView({ block: 'nearest' }); } catch (_) {}
+  return true;
+}
+// The first of `fields` present in the next (dir +1) / previous (-1) row that has one (doubler rows have no banding).
+function _rowNeighbour(bid, rid, fields, dir) {
+  const blk = blocks.find(x => x.id === bid);
+  if (!blk) return null;
+  let i = blk.rows.findIndex(r => r.id === rid);
+  if (i < 0) return null;
+  for (i += dir; i >= 0 && i < blk.rows.length; i += dir) {
+    for (const f of fields) { const el = _rowInput(bid, blk.rows[i].id, f); if (el) return el; }
+  }
+  return null;
+}
+function _isLastRow(bid, rid) {
+  const blk = blocks.find(x => x.id === bid);
+  return !!blk && blk.rows.length > 0 && blk.rows[blk.rows.length - 1].id === rid;
+}
+
 function handleKeydown(e, bid, rid, field) {
-  // ── Arrow ←/→ : jump to previous / next input in the same row.  For
-  // text inputs we only jump when the caret is at the edge so left/right
-  // still move the cursor inside text normally.  Number inputs (l/g/s/
-  // ag/as_) have selectionStart === null so they always jump.
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-    const inp = e.target;
-    if (inp.selectionStart != null) {
-      const val = inp.value || '';
-      if (e.key === 'ArrowRight' && inp.selectionStart < val.length) return;
-      if (e.key === 'ArrowLeft'  && inp.selectionStart > 0)          return;
+  const k = e.key;
+  if (k !== 'ArrowLeft' && k !== 'ArrowRight' && k !== 'ArrowUp' && k !== 'ArrowDown' && k !== 'Enter') return;
+
+  // Columns: Frezim (box + price) and Koment — up / down only, Enter = down
+  if (field === 'frezim' || field === 'frezimPrice' || field === 'koment') {
+    if (k === 'ArrowLeft' || k === 'ArrowRight') {
+      if (field === 'frezim') e.preventDefault();   // nothing to do sideways; text keeps its cursor keys
+      return;
     }
-    // Skip checkboxes (Ruaj Ujerat / Lyerje / Frezim) — arrows shouldn't
-    // touch boolean fields.  The 1A/2A toggle is a <button>, already
-    // excluded by the input selector.
-    const peers = [...document.querySelectorAll(`input[data-bid="${bid}"][data-rid="${rid}"]:not([type="checkbox"])`)];
-    const idx = peers.indexOf(inp);
-    if (idx >= 0) {
-      const next = peers[idx + (e.key === 'ArrowRight' ? 1 : -1)];
-      if (next) {
-        e.preventDefault();
-        next.focus();
-        if (typeof next.select === 'function') next.select();
-      }
-    }
+    e.preventDefault();                              // ↑/↓ never step a number, Enter never submits
+    const dir = k === 'ArrowUp' ? -1 : 1;
+    // from the price, the price below when that row has frezim ticked, else its box
+    const fields = field === 'frezimPrice' ? ['frezimPrice', 'frezim'] : [field];
+    const next = _rowNeighbour(bid, rid, fields, dir);
+    if (next) { _focusRowInput(next); return; }
+    if (k === 'Enter' && field === 'koment' && _isLastRow(bid, rid)) addRow(bid);
     return;
   }
-  // ── Arrow ↑/↓ : jump to the SAME field in the previous / next row of
-  // the same block.  Overrides the browser default for number inputs
-  // (which would otherwise increment/decrement) since the user asked for
-  // row navigation explicitly.
-  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-    const blk = blocks.find(x => x.id === bid);
-    if (!blk) return;
-    const idx = blk.rows.findIndex(r => r.id === rid);
-    if (idx < 0) return;
-    const target = blk.rows[idx + (e.key === 'ArrowDown' ? 1 : -1)];
-    if (!target) return;
-    const next = document.querySelector(`input[data-bid="${bid}"][data-rid="${target.id}"][data-f="${field}"]`);
-    if (next) {
-      e.preventDefault();
-      next.focus();
-      if (typeof next.select === 'function') next.select();
-    }
+
+  // The grid: Gjatësi, Gjerësi, Copë, Bord Lart., Bord Gjer.
+  if (!ROW_GRID_FIELDS.includes(field)) return;
+  const inp = e.target;
+  if (k === 'ArrowLeft' || k === 'ArrowRight') {
+    const row = ROW_GRID_FIELDS.map(f => _rowInput(bid, rid, f)).filter(Boolean);
+    const next = row[row.indexOf(inp) + (k === 'ArrowRight' ? 1 : -1)];
+    e.preventDefault();
+    if (next) _focusRowInput(next);
     return;
   }
-  if(e.key!=='Enter') return;
+  if (k === 'ArrowUp' || k === 'ArrowDown') {
+    e.preventDefault();                              // number inputs would otherwise count up / down
+    _focusRowInput(_rowNeighbour(bid, rid, [field], k === 'ArrowUp' ? -1 : 1));
+    return;
+  }
+  // Enter: the next grid field to the right; after the last one, the first field of the next row
   e.preventDefault();
-  const b = blocks.find(x=>x.id===bid);
-  const showAnet = b ? blockHasM2(b) : false;
-  // Field-jump order: l → g → s → ag → as_ → (1A/2A if shown) → koment →
-  // addRow.  Each step falls through to the next existing field if a
-  // particular one isn't rendered for this material (e.g. MDF has no ag/
-  // as_; mel/bet have no 1A/2A).  Previously `s` jumped straight to the
-  // 1A/2A toggle on hasM2 blocks, skipping the tenie inputs — fixed.
-  const q = (f) => document.querySelector(`input[data-bid="${bid}"][data-rid="${rid}"][data-f="${f}"]`);
-  const focusAnen = () => {
-    if (!showAnet) return false;
-    const btn = document.querySelector(`.ab.on[data-bid="${bid}"][data-rid="${rid}"]`);
-    if (btn) { btn.focus(); return true; }
-    return false;
-  };
-  if(field==='l') { const n=q('g'); if(n){n.focus();n.select();} return; }
-  if(field==='g') { const n=q('s'); if(n){n.focus();n.select();} return; }
-  if(field==='s') {
-    const n = q('ag') || q('as_');
-    if (n) { n.focus(); n.select(); return; }
-    if (focusAnen()) return;
-    const k = q('koment'); if (k) { k.focus(); k.select(); }
-    return;
-  }
-  if(field==='ag') { const n=q('as_'); if(n){n.focus();n.select(); return;} if(focusAnen())return; const k=q('koment'); if(k){k.focus();k.select();} return; }
-  if(field==='as_') { if(focusAnen())return; const n=q('koment'); if(n){n.focus();n.select();} return; }
-  if(field==='koment') { addRow(bid); return; }
+  const row = ROW_GRID_FIELDS.map(f => _rowInput(bid, rid, f)).filter(Boolean);
+  const next = row[row.indexOf(inp) + 1];
+  if (next) { _focusRowInput(next); return; }
+  const below = _rowNeighbour(bid, rid, ROW_GRID_FIELDS, 1);
+  if (below) { _focusRowInput(below); return; }
+  if (_isLastRow(bid, rid)) addRow(bid);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -10787,6 +10790,7 @@ function renderBlock(b) {
       </div>
     </th>
     ${(hasTenie && !hasM2) ? `<th style="color:#2d7dd2;min-width:42px;line-height:1.05;text-align:center">Bord<br>Lart.</th><th style="color:#1a7a4a;min-width:42px;line-height:1.05;text-align:center">Bord<br>Gjer.</th><th style="min-width:48px">ML</th>` : ''}
+    ${(!hasM2 && hasFrezim) ? `<th style="min-width:42px;text-align:center"><div style="display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;"><span>Frezim</span><input type="checkbox" onclick="toggleAllRows(${b.id},'frezim',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.frezim) ? 'checked' : ''}></div></th>` : ''}
     ${(hasTenie && hasM2)  ? `<th style="color:#2d7dd2;min-width:42px;line-height:1.05;text-align:center">Bord<br>Lart.</th><th style="color:#1a7a4a;min-width:42px;line-height:1.05;text-align:center">Bord<br>Gjer.</th><th style="min-width:44px">ML</th><th style="min-width:60px;text-align:center">Anët</th><th style="min-width:52px">M²</th><th style="min-width:40px;text-align:center"><div style="display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;"><span>Lyerje</span><input type="checkbox" onclick="toggleAllRows(${b.id},'lyerje',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.lyerje !== false) ? 'checked' : ''}></div></th>${hasFrezim?`<th style="min-width:42px;text-align:center"><div style="display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;"><span>Frezim</span><input type="checkbox" onclick="toggleAllRows(${b.id},'frezim',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.frezim) ? 'checked' : ''}></div></th>`:''}` : ''}
     ${(!hasTenie && hasM2) ? `<th style="min-width:72px;text-align:center">Anët</th><th style="min-width:52px">M²</th><th style="min-width:40px;text-align:center"><div style="display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;"><span>Lyerje</span><input type="checkbox" onclick="toggleAllRows(${b.id},'lyerje',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.lyerje !== false) ? 'checked' : ''}></div></th>${hasFrezim?`<th style="min-width:42px;text-align:center"><div style="display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;"><span>Frezim</span><input type="checkbox" onclick="toggleAllRows(${b.id},'frezim',this.checked)" title="Selekto/deselekto të gjitha" style="cursor:pointer;margin:0;" ${b.rows.length && b.rows.every(r => r.fromDopjim || r.frezim) ? 'checked' : ''}></div></th>`:''}` : ''}
     <th>Koment</th>
@@ -11031,6 +11035,22 @@ function renderBlock(b) {
   </div>`;
 }
 
+// The frezim cell of a row: the checkbox and, when ticked, the price per piece. Keys: only ↑/↓ and Enter (down).
+function _frezimTd(b, r) {
+  return `<td style="width:158px;text-align:center;white-space:nowrap;">
+      ${r.fromDopjim ? '' : `<input type="checkbox" class="frezim-cb" ${r.frezim?'checked':''}
+        data-bid="${b.id}" data-rid="${r.id}" data-f="frezim"
+        onchange="handleFrezim(${b.id},${r.id},this.checked)"
+        onkeydown="handleKeydown(event,${b.id},${r.id},'frezim')"
+        style="width:16px;height:16px;cursor:pointer;accent-color:#7c3aed;vertical-align:middle;">` + `<span class="frezim-price-wrap" id="frezim-price-wrap-${b.id}-${r.id}" style="align-items:center;gap:5px;margin-left:7px;vertical-align:middle;display:${r.frezim ? 'inline-flex' : 'none'};"><input type="number" min="0" step="1" class="frezim-price" id="frezim-price-${b.id}-${r.id}"
+        data-bid="${b.id}" data-rid="${r.id}" data-f="frezimPrice"
+        value="${r.frezimPrice != null ? r.frezimPrice : ''}" placeholder="çmimi" title="Çmimi i frezimit për copë"
+        oninput="handleFrezimPrice(${b.id},${r.id},this.value)"
+        onkeydown="handleKeydown(event,${b.id},${r.id},'frezimPrice')"
+        style="width:86px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-family:'DM Mono',monospace;font-size:12px;text-align:right;"><span style="font-size:11px;font-weight:600;color:var(--text3);font-family:'DM Mono',monospace;">Lek</span></span>`}
+    </td>`;
+}
+
 function renderRow(b, r) {
   const hasTenie = blockHasTenie(b);
   const hasM2 = blockHasM2(b);
@@ -11059,7 +11079,8 @@ function renderRow(b, r) {
         oninput="handleInput(${b.id},${r.id},'as_',this.value)"
         onkeydown="handleKeydown(event,${b.id},${r.id},'as_')">`}
     </td>
-    <td style="width:48px;font-family:'DM Mono',monospace;font-size:11px;color:var(--text2);text-align:center" id="ml-${b.id}-${r.id}">${r.fromDopjim ? '' : mlStr}</td>` : '';
+    <td style="width:48px;font-family:'DM Mono',monospace;font-size:11px;color:var(--text2);text-align:center" id="ml-${b.id}-${r.id}">${r.fromDopjim ? '' : mlStr}</td>
+    ${hasFrezim ? _frezimTd(b, r) : ''}` : '';
 
   // lis: Anë G + Anë Sh + ML + 1A/2A + M² (same fromDopjim treatment)
   const lisCols = (hasTenie && hasM2) ? `
@@ -11091,15 +11112,10 @@ function renderRow(b, r) {
         onchange="handleLyerje(${b.id},${r.id},this.checked)"
         style="width:16px;height:16px;cursor:pointer;accent-color:#1a7a4a;">`}
     </td>
-    ${hasFrezim ? `<td style="width:158px;text-align:center;white-space:nowrap;">
-      ${r.fromDopjim ? '' : `<input type="checkbox" class="frezim-cb" ${r.frezim?'checked':''}
-        data-bid="${b.id}" data-rid="${r.id}"
-        onchange="handleFrezim(${b.id},${r.id},this.checked)"
-        style="width:16px;height:16px;cursor:pointer;accent-color:#7c3aed;vertical-align:middle;">` + `<span class="frezim-price-wrap" id="frezim-price-wrap-${b.id}-${r.id}" style="align-items:center;gap:5px;margin-left:7px;vertical-align:middle;display:${r.frezim ? 'inline-flex' : 'none'};"><input type="number" min="0" step="1" class="frezim-price" id="frezim-price-${b.id}-${r.id}"
-        value="${r.frezimPrice != null ? r.frezimPrice : ''}" placeholder="çmimi" title="Çmimi i frezimit për copë"
-        oninput="handleFrezimPrice(${b.id},${r.id},this.value)"
-        style="width:86px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-family:'DM Mono',monospace;font-size:12px;text-align:right;"><span style="font-size:11px;font-weight:600;color:var(--text3);font-family:'DM Mono',monospace;">Lek</span></span>`}
-    </td>` : ''}` : '';
+    ${hasFrezim ? _frezimTd(b, r) : ''}` : '';
+
+  // no banding, no painting (fibre melamine): only the frezim cell
+  const plainCols = (!hasTenie && !hasM2 && hasFrezim) ? _frezimTd(b, r) : '';
 
   // mdf only: 1A/2A + M²
   const anetCols = (!hasTenie && hasM2) ? `
@@ -11120,15 +11136,7 @@ function renderRow(b, r) {
         onchange="handleLyerje(${b.id},${r.id},this.checked)"
         style="width:16px;height:16px;cursor:pointer;accent-color:#c0392b;">`}
     </td>
-    ${hasFrezim ? `<td style="width:158px;text-align:center;white-space:nowrap;">
-      ${r.fromDopjim ? '' : `<input type="checkbox" class="frezim-cb" ${r.frezim?'checked':''}
-        data-bid="${b.id}" data-rid="${r.id}"
-        onchange="handleFrezim(${b.id},${r.id},this.checked)"
-        style="width:16px;height:16px;cursor:pointer;accent-color:#7c3aed;vertical-align:middle;">` + `<span class="frezim-price-wrap" id="frezim-price-wrap-${b.id}-${r.id}" style="align-items:center;gap:5px;margin-left:7px;vertical-align:middle;display:${r.frezim ? 'inline-flex' : 'none'};"><input type="number" min="0" step="1" class="frezim-price" id="frezim-price-${b.id}-${r.id}"
-        value="${r.frezimPrice != null ? r.frezimPrice : ''}" placeholder="çmimi" title="Çmimi i frezimit për copë"
-        oninput="handleFrezimPrice(${b.id},${r.id},this.value)"
-        style="width:86px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-family:'DM Mono',monospace;font-size:12px;text-align:right;"><span style="font-size:11px;font-weight:600;color:var(--text3);font-family:'DM Mono',monospace;">Lek</span></span>`}
-    </td>` : ''}` : '';
+    ${hasFrezim ? _frezimTd(b, r) : ''}` : '';
 
   // PDF-imported rows lock their dimensions + quantity. The user can still
   // edit tenie/paint/frezim toggles, change the comment, or delete the row —
@@ -11170,7 +11178,7 @@ function renderRow(b, r) {
         title="Ruaj Ujerat — copët shënuara mbahen në të njëjtën linjë horizontale"
         style="width:16px;height:16px;cursor:pointer;accent-color:#7a4a8c;">`}
     </td>
-    ${tenieCols}${lisCols}${anetCols}
+    ${tenieCols}${lisCols}${anetCols}${plainCols}
     <td><input class="ri ri-kom" type="text" placeholder="koment…"
       value="${escHtml(r.koment||'')}" data-bid="${b.id}" data-rid="${r.id}" data-f="koment"
       oninput="handleInput(${b.id},${r.id},'koment',this.value)"
@@ -16565,12 +16573,14 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
     if(hasTenie && !hasM2){
       // mel / bet — #, Lartësia, Gjerësia, Copë, Koment
       // Tenie lines drawn above dimension values
+      const frW0 = 12;
       cols = [
         {label:'#',       w:8,  align:'center'},
         {label:'Lartësia',w:20, align:'center'},
         {label:'Gjerësia',w:20, align:'center'},
         {label:'Copë',    w:12, align:'center'},
-        {label:'Koment',  w:tW-8-20-20-12, align:'left'},
+        ...(hasFrezim ? [{label:'Frezim', w:frW0, align:'center'}] : []),
+        {label:'Koment',  w:tW-8-20-20-12-(hasFrezim?frW0:0), align:'left'},
       ];
       rows = b.rows.filter(r=>parseInt(r.s)>0).map((r,i)=>{
         const l=parseFloat(r.l)||0, g=parseFloat(r.g)||0;
@@ -16580,6 +16590,7 @@ function buildMaterialsPDF(klienti, fatura, data, onlyBlockId) {
           {text: l>0?Math.round(l)+' mm':'—', lines: l>=g?ag:as_},
           {text: g>0?Math.round(g)+' mm':'—', lines: g>l?ag:as_},
           {text: r.s||'—'},
+          ...(hasFrezim ? [r.frezim ? 'X' : ''] : []),
           r.koment||'',
         ];
       });
