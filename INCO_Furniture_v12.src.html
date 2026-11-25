@@ -13632,6 +13632,13 @@ function _stripLabelRefsIfDisabled(content, block) {
 // was.  Runs only when labels are printed: without labels a pack cut is
 // simply faster.  Applied at write time to every file, so manual-editor
 // and older panels are covered too.
+// The same happens ONE LEVEL DOWN, inside a strip (Ersi Tarelli 105, 2026-11-25): after the U* / V* marker every
+// offcut is a group — cross cut (X / U), its head trim (RU / RV), its cuts (U… / V…). Consecutive identical groups
+// (three 835 × 390 cut from a 414 strip) are recut by the saw as one pack, with one label. Every repeat of a group on
+// the panel (next to it, or in another strip) gets its own head trim (RU / RV): whole mm up while one kerf of free
+// width stays, else down, then half mm; never below 5 mm (the smallest trim the packer itself writes; a 0 trim — piece
+// flush with the strip edge — is only ever moved to 5 mm or more, never to a 1–2 mm sliver). Piece sizes, cut order,
+// counts and references stay. The strip-level rule above is unchanged.
 function _degroupIdenticalStrips(content, block) {
   if (!content || (block && block.printLabels === false)) return content;
   try {
@@ -13666,6 +13673,85 @@ function _degroupIdenticalStrips(content, block) {
       strips.push(rows.slice(si, ei));
       si = ei;
     }
+    let changed = 0;
+    // Offsets for the k-th duplicate of a run: upward first while one kerf of free length stays (the head trim also
+    // eats a kerf), then downward never below 8 mm; unique within the run when possible, else just different from the
+    // previous one (only consecutive identical elements are packed).
+    const pickOffsets = (run, freeOf, headOf) => {
+      const usedOff = new Set([0]);
+      let prevOff = 0;
+      for (let k = 1; k < run.length; k++) {
+        const head = headOf(run[k]);
+        if (!head) continue;
+        const free = freeOf(run[k]);
+        const fits = d => d > 0 ? d + kerf <= free + 1e-6 : head.val + d >= 8 - 1e-6;
+        let pick = null;
+        for (let d = 1; d <= 20 && pick == null; d++) if (!usedOff.has(d) && fits(d)) pick = d;
+        for (let d = 1; d <= 2 && pick == null; d++) if (!usedOff.has(-d) && fits(-d)) pick = -d;
+        for (const d of [-1, -2, 1, 2]) if (pick == null && d !== prevOff && fits(d)) pick = d;
+        if (pick == null) continue;
+        usedOff.add(pick); prevOff = pick;
+        head.val = Math.round((head.val + pick) * 1000) / 1000;
+        lines[head.li] = head.num + '=' + head.type + ',' + head.val.toFixed(6) + ',' + head.rep + ',' + head.rest;
+        changed++;
+      }
+    };
+    // the strips as written: the strip-level pass below compares these, so it behaves exactly as before
+    const stripSig0 = strips.map(st => st.map(r => r.type + ',' + r.val + ',' + r.rep).join('|'));
+    // ── inside each strip: every repeat of an offcut group gets its own head trim ──
+    {
+      const AST = mode === 'Y' ? 'U*' : 'V*', G1 = mode === 'Y' ? 'X' : 'U', G2 = mode === 'Y' ? 'RU' : 'RV', G3 = mode === 'Y' ? 'U' : 'V';
+      const GFLOOR = 5;
+      const r3 = v => Math.round(v * 1000) / 1000;
+      const family = new Map();   // group signature (as written) -> head trims already used on this panel
+      for (const st of strips) {
+        const stripVal = st[0] && st[0].type === OPEN ? st[0].val : 0;
+        const a = st.findIndex(r => r.type === AST);
+        if (!(stripVal > 0) || a < 0) continue;
+        const groups = [];
+        for (let i = a + 1; i < st.length;) {
+          if (st[i].type !== G1 || !st[i + 1] || st[i + 1].type !== G2) break;
+          let e = i + 2;
+          while (e < st.length && st[e].type === G3) e++;
+          if (e === i + 2) break;   // a group without cuts: leave the rest of the strip alone
+          groups.push(st.slice(i, e));
+          i = e;
+        }
+        const sigs = groups.map(g => g.map(r => r.type + ',' + r.val + ',' + r.rep).join('|'));   // before any change
+        let prevSig = null, prevVal = null;
+        groups.forEach((g, gi) => {
+          const head = g[1], key = sigs[gi];
+          const used = family.get(key);
+          if (!used) { family.set(key, new Set([r3(head.val)])); prevSig = key; prevVal = r3(head.val); return; }
+          // free width of the group across the strip: strip − (trim + cuts + kerf between the cuts)
+          const cuts = g.slice(2);
+          const n = cuts.reduce((x, r) => x + r.rep, 0);
+          const free = stripVal - head.val - cuts.reduce((x, r) => x + r.val * r.rep, 0) - kerf * Math.max(0, n - 1);
+          const ok = d => {
+            const v = head.val + d;
+            if (v < GFLOOR - 1e-6) return false;                      // never a sliver trim
+            return d > 0 ? d + kerf <= free + 1e-6 : true;            // up: one kerf of free width stays; down: only less
+          };
+          const cands = [];
+          for (let d = 1; d <= 20; d++) cands.push(d);
+          for (let d = 1; d <= 20; d++) cands.push(-d);
+          for (let d = 0.5; d <= 20; d += 1) { cands.push(d); cands.push(-d); }
+          let pick = null;
+          for (const d of cands) if (ok(d) && !used.has(r3(head.val + d))) { pick = d; break; }
+          // no unique value left: at least differ from the group just before when it is the same piece
+          if (pick == null && prevSig === key && r3(head.val) === prevVal) {
+            for (const d of cands) if (ok(d) && r3(head.val + d) !== prevVal) { pick = d; break; }
+          }
+          if (pick != null) {
+            head.val = r3(head.val + pick);
+            lines[head.li] = head.num + '=' + head.type + ',' + head.val.toFixed(6) + ',' + head.rep + ',' + head.rest;
+            changed++;
+          }
+          used.add(r3(head.val));
+          prevSig = key; prevVal = r3(head.val);
+        });
+      }
+    }
     const sig = st => st.map(r => r.type + ',' + r.val + ',' + r.rep).join('|');
     // Free length along the strip's own axis (kerf between elements only).
     const freeOf = st => {
@@ -13685,36 +13771,11 @@ function _degroupIdenticalStrips(content, block) {
       }
       return panelW - used - kerf * Math.max(0, n - 1);
     };
-    let changed = 0;
+    // ── consecutive identical strips: the k-th duplicate's head trim (RX / RU) ──
     for (let i = 0; i < strips.length;) {
       let j = i + 1;
-      while (j < strips.length && sig(strips[j]) === sig(strips[i])) j++;
-      if (j - i > 1) {
-        const usedOff = new Set([0]);
-        let prevOff = 0;
-        for (let k = i + 1; k < j; k++) {
-          const st = strips[k], head = st[1];
-          if (!head || head.type !== HEAD) continue;
-          const free = freeOf(st);
-          // Upward offsets first (+1, +2, …) while the strip keeps one kerf
-          // of free length beyond the offset (the saw's head trim also eats
-          // a kerf, so the row must never get tighter than the packer
-          // allows), then downward (−1, −2, …) never below 8 mm. Offsets
-          // are unique within the run when possible; when they run out, any
-          // offset that differs from the previous strip's still breaks the
-          // pack (only consecutive identical strips are cut together).
-          const fits = d => d > 0 ? d + kerf <= free + 1e-6 : head.val + d >= 8 - 1e-6;
-          let pick = null;
-          for (let d = 1; d <= 20 && pick == null; d++) if (!usedOff.has(d) && fits(d)) pick = d;
-          for (let d = 1; d <= 2 && pick == null; d++) if (!usedOff.has(-d) && fits(-d)) pick = -d;
-          for (const d of [-1, -2, 1, 2]) if (pick == null && d !== prevOff && fits(d)) pick = d;
-          if (pick == null) continue;
-          usedOff.add(pick); prevOff = pick;
-          head.val = Math.round((head.val + pick) * 1000) / 1000;
-          lines[head.li] = head.num + '=' + head.type + ',' + head.val.toFixed(6) + ',' + head.rep + ',' + head.rest;
-          changed++;
-        }
-      }
+      while (j < strips.length && stripSig0[j] === stripSig0[i]) j++;
+      if (j - i > 1) pickOffsets(strips.slice(i, j), freeOf, st => (st[1] && st[1].type === HEAD ? st[1] : null));
       i = j;
     }
     if (!changed) return content;
